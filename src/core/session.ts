@@ -33,6 +33,13 @@ export class SessionManager {
     await this.store.save(session);
   }
 
+  /** 整体替换历史（/compact 摘要回写用），仍受条数封顶约束 */
+  async replaceHistory(session: SessionData, history: ChatMessage[]): Promise<void> {
+    session.history = this.trim(history);
+    session.updatedAt = Date.now();
+    await this.store.save(session);
+  }
+
   async reset(platform: PlatformId, chatId: string): Promise<void> {
     await this.store.delete(sessionKey(platform, chatId));
   }

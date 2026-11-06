@@ -117,6 +117,54 @@ export function builtinCommands(): CommandSpec[] {
       },
     },
     {
+      name: 'compact',
+      visible: true,
+      description: '把当前会话历史压缩成一段摘要（以你的需求为主线），上下文继续',
+      usage: '/compact',
+      async handler(ctx, deps) {
+        const session = await deps.sessions.get(ctx.msg.platform, ctx.msg.chatId);
+        if (session.history.length === 0) {
+          await ctx.reply('当前会话还没有对话记录，没什么可压缩的。');
+          return;
+        }
+        const before = session.history.length;
+        const transcript = session.history
+          .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content}`)
+          .join('\n');
+        const prompt = [
+          '请把下面这段人与助手的对话压缩成一段摘要，作为后续对话的背景。',
+          '要求：',
+          '- 以用户说过的话为主线：他们的需求、想法、提到的事实与偏好，尽量保留关键细节',
+          '- 助手的回复只保留必要的结论，寒暄与过程性内容舍弃',
+          '- 「名字：」开头的行来自群聊，摘要中保留说话人身份',
+          '- 输出一段简洁叙述（不分点、不加标题），300 字以内',
+          '',
+          '对话记录：',
+          transcript,
+        ].join('\n');
+        await ctx.reply('正在压缩对话…');
+        let summary: string;
+        try {
+          summary = await deps.registry.chat(session.modelAlias, [
+            { role: 'user', content: prompt },
+          ]);
+        } catch (err) {
+          await ctx.reply(
+            `压缩失败（${err instanceof Error ? err.message : '未知错误'}），原对话历史未受影响。`,
+          );
+          return;
+        }
+        const summaryMsg = {
+          role: 'user' as const,
+          content: `[以下是此前对话的压缩摘要，作为背景继续聊天]\n${summary.trim()}`,
+        };
+        await deps.sessions.replaceHistory(session, [summaryMsg]);
+        await ctx.reply(
+          `已压缩：${before} 条记录 → ${summary.trim().length} 字摘要，接下来以摘要为背景继续聊。`,
+        );
+      },
+    },
+    {
       name: 'reset',
       visible: true,
       description: '清空当前会话的对话历史',

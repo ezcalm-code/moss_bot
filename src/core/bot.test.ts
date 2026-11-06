@@ -10,8 +10,9 @@ import { SessionManager } from './session';
 
 const silentLog = pino({ level: 'silent' });
 
-function fakeProvider(fail = false) {
+function makeDeps() {
   const calls: { model: string; messages: { role: string; content: string }[] }[] = [];
+  const providerState = { fail: false };
   const provider: LLMProvider = {
     id: 'fake',
     async *streamChat(messages, opts) {
@@ -19,19 +20,19 @@ function fakeProvider(fail = false) {
         model: opts.model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
       });
-      if (fail) throw new Error('boom');
+      if (providerState.fail) throw new Error('boom');
       yield 'Hel';
       yield 'lo!';
     },
-    async chat() {
+    async chat(messages, opts) {
+      calls.push({
+        model: opts.model,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      });
+      if (providerState.fail) throw new Error('boom');
       return 'Hello!';
     },
   };
-  return { provider, calls };
-}
-
-function makeDeps(fail = false) {
-  const { provider, calls } = fakeProvider(fail);
   const registry = new LlmRegistry(
     new Map([['xai', provider]]),
     new Map(),
@@ -49,7 +50,7 @@ function makeDeps(fail = false) {
     personaName: 'Moss',
     log: silentLog,
   });
-  return { bot, sessions, calls };
+  return { bot, sessions, calls, setFail: (v: boolean) => (providerState.fail = v) };
 }
 
 function fakeMsg(text: string, extra?: Partial<IncomingMessage>) {
@@ -107,13 +108,57 @@ describe('parseCommand', () => {
 });
 
 describe('CommandRegistry', () => {
-  it('内置命令表只暴露 4 个可见命令（/start 不可见）', () => {
+  it('内置命令表只暴露 5 个可见命令（/start 不可见）', () => {
     const registry = new CommandRegistry(builtinCommands());
     const menu = registry
       .menu()
       .map((m) => m.name)
       .sort();
-    expect(menu).toEqual(['help', 'model', 'models', 'reset']);
+    expect(menu).toEqual(['compact', 'help', 'model', 'models', 'reset']);
+  });
+});
+
+describe('/compact', () => {
+  it('压缩后历史替换为单条摘要消息，摘要 prompt 以用户内容为主线（AC compact-1）', async () => {
+    const { bot, sessions, calls } = makeDeps();
+    await bot.handle(fakeMsg('我叫小明，在折腾一个爬虫项目').msg);
+    await bot.handle(fakeMsg('好的记住啦').msg);
+    const before = (await sessions.get('telegram', '1')).history.length;
+    expect(before).toBe(4);
+
+    const { msg, state } = fakeMsg('/compact');
+    await bot.handle(msg);
+    expect(state.replies.join('\n')).toContain('已压缩');
+
+    const session = await sessions.get('telegram', '1');
+    expect(session.history).toHaveLength(1);
+    expect(session.history[0]?.role).toBe('user');
+    expect(session.history[0]?.content).toContain('压缩摘要');
+    expect(session.history[0]?.content).toContain('Hello!');
+
+    // 摘要 prompt 应包含原对话内容（calls 最后一次是 compact 的摘要调用）
+    const prompt = calls[calls.length - 1]?.messages[0]?.content ?? '';
+    expect(prompt).toContain('用户：我叫小明，在折腾一个爬虫项目');
+    expect(prompt).toContain('助手：Hello!');
+  });
+
+  it('空历史时提示无需压缩', async () => {
+    const { bot, sessions } = makeDeps();
+    const { msg, state } = fakeMsg('/compact');
+    await bot.handle(msg);
+    expect(state.replies.join('\n')).toContain('没什么可压缩');
+    expect((await sessions.get('telegram', '1')).history).toHaveLength(0);
+  });
+
+  it('LLM 失败时提示且原历史保持不变', async () => {
+    const { bot, sessions, setFail } = makeDeps();
+    await bot.handle(fakeMsg('你好').msg);
+    const before = (await sessions.get('telegram', '1')).history.slice();
+    setFail(true);
+    const { msg, state } = fakeMsg('/compact');
+    await bot.handle(msg);
+    expect(state.replies.join('\n')).toContain('压缩失败');
+    expect((await sessions.get('telegram', '1')).history).toEqual(before);
   });
 });
 
@@ -177,7 +222,8 @@ describe('BotCore', () => {
   });
 
   it('LLM 失败时调用 abort 且不回写历史', async () => {
-    const { bot, sessions } = makeDeps(true);
+    const { bot, sessions, setFail } = makeDeps();
+    setFail(true);
     const { msg, state } = fakeMsg('hi');
     await bot.handle(msg);
     expect(state.aborted?.message).toBe('boom');
