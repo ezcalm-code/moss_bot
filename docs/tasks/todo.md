@@ -44,3 +44,10 @@
   证据：[v0.1-stage3-5/results.md](verification/v0.1-stage3-5/results.md)。
   教训：⑤ 飞书群聊 @ 判定需要 bot open_id，SDK 未封装 bot/v3/info，手写 REST（tenant_access_token + info）解决；
   ⑥ 卡片创建失败时降级文本只能发一次（append 里发一次 + finish 兜底一次会重复），统一由 finish/abort 兜底。
+- 2026-11-06 桌面渠道管理工具完成（desktop/，计划外新增，用户选定 MyGo 原生 UI）：
+  13 个逻辑单测 + 5 个无窗口 view 交互测试全绿；yaml.Node 局部替换写入，config.yaml 其他段与注释原样保留；
+  用户已实测新渠道并通过 bot 重启生效。证据：[desktop-config-tool/results.md](verification/desktop-config-tool/results.md)。
+  教训：⑦ Windows 下停 npm/tsx 包装进程不杀 node 子进程，bot 重启出现双实例 409 冲突——须按 PID 清理 node 孤儿进程；
+  ⑧ Go/MyGo 的 TextInput 绑定 *string，Tester.Type 在光标处追加，改值测试直接写绑定变量更可靠；
+  ⑨ Windows 桌面程序构建须加 `-ldflags="-H windowsgui"`，否则双击弹出终端且关终端会连带杀掉应用。
+- [ ] 待办：AC3.2/3.3 群聊真机测试、飞书联调、desktop 工具发布到 GitHub release（可选）

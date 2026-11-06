@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **桌面渠道管理工具**（`desktop/`，基于 [MyGo](https://github.com/egoist/mygo) 原生 UI）：模型渠道的添加 / 修改 / 删除 / 切换默认，保存前交叉校验（重复 alias、未知 provider、非法 baseUrl、缺 key 来源），改动即时写回 `config.yaml` 且保留其他配置段与注释；纯 Go 单文件二进制，无 WebView，低内存占用
+
 ## 0.1.0 (2026-11-06)
 
 首个版本：对标 grok bot 的聊天机器人基线。

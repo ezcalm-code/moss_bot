@@ -71,6 +71,24 @@ cp config.example.yaml config.yaml && cp .env.example .env   # 填好配置
 docker compose up -d
 ```
 
+## 桌面渠道管理工具（可选）
+
+不想手改 YAML？`desktop/` 提供一个原生 GUI 小工具（基于 [MyGo](https://github.com/egoist/mygo)，纯 Go、无 WebView、单文件 ~15MB、运行内存 ~30MB）：
+
+- 模型渠道的添加 / 修改 / 删除（删除带确认，自动清理无引用的 provider）
+- 一键切换默认模型，重复 alias、非法 baseUrl、缺 key 来源等在保存前拦截
+- 改动即时写回 `config.yaml`，文件中其他配置段的顺序与注释原样保留
+
+构建与运行（需要 Go ≥ 1.27）：
+
+```bash
+go -C desktop test                          # 跑工具的测试
+go -C desktop build -ldflags="-H windowsgui" -o moss-config.exe .
+./moss-config.exe                           # Windows 下也可直接双击
+```
+
+默认读取同目录的 `config.yaml`，可用 `MOSS_CONFIG` 环境变量指向其他路径；改动后重启 bot 生效。开发调试可用 `npm run gui`（带终端日志）。
+
 ## 架构
 
 见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。

@@ -16,15 +16,28 @@ npm run dev                     # 启动已启用的平台适配器
 
 ## 常用脚本
 
-| 命令                              | 作用                                    |
-| --------------------------------- | --------------------------------------- |
-| `npm run dev`                     | 开发模式启动（tsx watch，改动自动重启） |
-| `npm run chat`                    | 本地终端 REPL                           |
-| `npm run test` / `test:watch`     | 运行测试（vitest）                      |
-| `npm run typecheck`               | TypeScript 类型检查                     |
-| `npm run lint`                    | ESLint                                  |
-| `npm run format` / `format:check` | Prettier 格式化 / 检查                  |
-| `npm run build`                   | 构建产物到 dist/                        |
+| 命令                              | 作用                                       |
+| --------------------------------- | ------------------------------------------ |
+| `npm run dev`                     | 开发模式启动（tsx watch，改动自动重启）    |
+| `npm run chat`                    | 本地终端 REPL                              |
+| `npm run config`                  | 配置管理工具（保留兼容入口，推荐用桌面版） |
+| `npm run gui`                     | 桌面渠道管理工具（Go，需本机 Go 工具链）   |
+| `npm run test` / `test:watch`     | 运行测试（vitest）                         |
+| `npm run typecheck`               | TypeScript 类型检查                        |
+| `npm run lint`                    | ESLint                                     |
+| `npm run format` / `format:check` | Prettier 格式化 / 检查                     |
+| `npm run build`                   | 构建产物到 dist/                           |
+
+## 桌面工具（desktop/）
+
+Go 工程（[MyGo](https://github.com/egoist/mygo) 原生 UI），需要 Go ≥ 1.27：
+
+```bash
+go -C desktop test        # 逻辑单测 + 无窗口 view 交互测试
+go -C desktop build -ldflags="-H windowsgui" -o moss-config.exe .
+```
+
+`-H windowsgui` 让 Windows 下双击运行不再弹出终端。改 config 读写逻辑时同步更新 `config_test.go`；改界面时跑 `main_test.go` 的 view 测试（`ui.NewTester` 可无窗口点击断言）。
 
 ## 提交约定
 
