@@ -1,6 +1,6 @@
 # v0.1 阶段 0-2 验收证据
 
-日期：2026-11-06 · 环境：Windows 11 / Node v20.20.0 / npm 10.8.2 · commit：见 git log（尚未推送远端）
+日期：2026-11-06 · 环境：Windows 11 / Node v20.20.0 / npm 10.8.2 · commit：见 git log
 
 ## 结果表
 
