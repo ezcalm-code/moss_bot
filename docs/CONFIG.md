@@ -65,6 +65,14 @@ Record 类型，key 为 provider id。
 | domain       | `feishu\|lark` | `feishu`            | lark 为国际版                            |
 | streaming    | bool           | `true`              | CardKit 流式卡片；失败自动降级为普通消息 |
 
+### memory
+
+| 字段    | 类型 | 默认   | 说明                                                                          |
+| ------- | ---- | ------ | ----------------------------------------------------------------------------- |
+| enabled | bool | `true` | 跨会话用户记忆；画像按用户存于 `data/memory/`，`/memory` 查看、`/forget` 清除 |
+
+记忆机制：每轮回复后后台提取值得长期保留的事实（身份、偏好、进行中的事），敏感信息（密码/证件/住址）即使提到也不记录。画像为 Markdown 文本，可直接手改。
+
 ## 启动期校验规则
 
 - `persona.systemPrompt` 与 `persona.systemPromptFile` 只能配置其一

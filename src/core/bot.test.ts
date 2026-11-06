@@ -1,7 +1,11 @@
 import pino from 'pino';
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage } from '../adapters/types';
 import { LlmRegistry } from '../llm/registry';
+import { UserMemoryStore } from '../memory/store';
 import type { LLMProvider } from '../llm/types';
 import { MemorySessionStore } from '../stores/memory';
 import { BotCore } from './bot';
@@ -10,7 +14,7 @@ import { SessionManager } from './session';
 
 const silentLog = pino({ level: 'silent' });
 
-function makeDeps() {
+function makeDeps(memory?: UserMemoryStore) {
   const calls: { model: string; messages: { role: string; content: string }[] }[] = [];
   const providerState = { fail: false };
   const provider: LLMProvider = {
@@ -49,6 +53,7 @@ function makeDeps() {
     systemPrompt: 'SYS',
     personaName: 'Moss',
     log: silentLog,
+    memory,
   });
   return { bot, sessions, calls, setFail: (v: boolean) => (providerState.fail = v) };
 }
@@ -108,13 +113,22 @@ describe('parseCommand', () => {
 });
 
 describe('CommandRegistry', () => {
-  it('内置命令表只暴露 5 个可见命令（/start 不可见）', () => {
+  it('内置命令表暴露 8 个可见命令（/start 不可见）', () => {
     const registry = new CommandRegistry(builtinCommands());
     const menu = registry
       .menu()
       .map((m) => m.name)
       .sort();
-    expect(menu).toEqual(['compact', 'help', 'model', 'models', 'reset']);
+    expect(menu).toEqual([
+      'compact',
+      'forget',
+      'help',
+      'memory',
+      'model',
+      'models',
+      'remember',
+      'reset',
+    ]);
   });
 });
 
@@ -237,5 +251,106 @@ describe('BotCore', () => {
     const { msg, state } = fakeMsg('', { attachments: [{ type: 'image' }] });
     await bot.handle(msg);
     expect(state.replies.join('\n')).toContain('暂时只支持文字');
+  });
+});
+
+describe('memory', () => {
+  const tmpDirs: string[] = [];
+
+  function newMemory(): UserMemoryStore {
+    const dir = mkdtempSync(join(tmpdir(), 'moss-mem-test-'));
+    tmpDirs.push(dir);
+    return new UserMemoryStore(dir);
+  }
+
+  afterEach(() => {
+    for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  it('已有画像时注入 system prompt（messages[0] 含已知信息）', async () => {
+    const memory = newMemory();
+    await memory.save('telegram:1:u1', '- 用户叫小明');
+    const { bot, calls } = makeDeps(memory);
+    await bot.handle(fakeMsg('你好').msg);
+    const sys = calls[0]?.messages[0]?.content ?? '';
+    expect(sys).toContain('SYS');
+    expect(sys).toContain('已知信息');
+    expect(sys).toContain('- 用户叫小明');
+  });
+
+  it('无画像时不注入（messages[0] 保持纯 persona）', async () => {
+    const { bot, calls } = makeDeps(newMemory());
+    await bot.handle(fakeMsg('你好').msg);
+    expect(calls[0]?.messages[0]?.content).toBe('SYS');
+  });
+
+  it('回复后后台提取并写盘（vi.waitFor）', async () => {
+    const memory = newMemory();
+    const { bot, calls, sessions } = makeDeps(memory);
+    await bot.handle(fakeMsg('我叫小明').msg);
+    await vi.waitFor(async () => {
+      expect(await memory.load('telegram:1:u1')).toBe('Hello!');
+    });
+    // 提取调用发生了：聊天(streamChat) 1 次 + 提取(chat) 1 次
+    expect(calls.length).toBe(2);
+    const session = await sessions.get('telegram', '1');
+    expect(session.history).toHaveLength(2); // 对话本身不受影响
+  });
+
+  it('memory 未开启时无注入也无提取', async () => {
+    const { bot, calls } = makeDeps();
+    await bot.handle(fakeMsg('你好').msg);
+    expect(calls[0]?.messages[0]?.content).toBe('SYS');
+    expect(calls.length).toBe(1); // 只有聊天调用，无提取
+  });
+});
+
+describe('/remember /memory /forget', () => {
+  const tmpDirs: string[] = [];
+
+  function makeWithMemory() {
+    const dir = mkdtempSync(join(tmpdir(), 'moss-mem-cmd-'));
+    tmpDirs.push(dir);
+    return makeDeps(new UserMemoryStore(dir));
+  }
+
+  afterEach(() => {
+    for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  it('/remember 追加事实，/memory 查看，/forget 清除', async () => {
+    const { bot } = makeWithMemory();
+    await bot.handle(fakeMsg('/remember 我对花生过敏').msg);
+    await bot.handle(fakeMsg('/remember 我在杭州工作').msg);
+
+    const view = fakeMsg('/memory');
+    await bot.handle(view.msg);
+    const shown = view.state.replies.join('\n');
+    expect(shown).toContain('我对花生过敏');
+    expect(shown).toContain('我在杭州工作');
+
+    await bot.handle(fakeMsg('/forget').msg);
+    const gone = fakeMsg('/memory');
+    await bot.handle(gone.msg);
+    expect(gone.state.replies.join('\n')).toContain('还没有关于你的记忆');
+  });
+
+  it('/remember 无参数时给出用法提示', async () => {
+    const { bot } = makeWithMemory();
+    const { msg, state } = fakeMsg('/remember');
+    await bot.handle(msg);
+    expect(state.replies.join('\n')).toContain('想让我记什么');
+  });
+
+  it('菜单含 8 个可见命令', () => {
+    const registry = new CommandRegistry(builtinCommands());
+    expect(
+      registry
+        .menu()
+        .map((m) => m.name)
+        .sort(),
+    ).toEqual(['compact', 'forget', 'help', 'memory', 'model', 'models', 'remember', 'reset']);
   });
 });

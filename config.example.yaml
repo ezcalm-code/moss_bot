@@ -33,6 +33,9 @@ session:
   store: memory # memory | file（file 落盘到 data/sessions/）
   maxHistoryMessages: 40
 
+memory:
+  enabled: true # 跨会话用户记忆（画像存 data/memory/，/forget 可清除）
+
 telegram:
   enabled: false
   botTokenEnv: TELEGRAM_BOT_TOKEN

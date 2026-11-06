@@ -112,6 +112,7 @@ export function resolveConfig(
       domain: cfg.feishu.domain,
       streaming: cfg.feishu.streaming,
     },
+    memory: cfg.memory,
   };
 }
 

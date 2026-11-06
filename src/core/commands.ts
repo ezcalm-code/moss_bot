@@ -1,5 +1,6 @@
 import type { IncomingMessage } from '../adapters/types';
 import type { LlmRegistry } from '../llm/registry';
+import { memoryKeyOf, type UserMemoryStore } from '../memory/store';
 import { texts } from '../text';
 import type { SessionManager } from './session';
 
@@ -15,6 +16,7 @@ export interface CommandDeps {
   registry: LlmRegistry;
   sessions: SessionManager;
   personaName: string;
+  memory?: UserMemoryStore;
 }
 
 export interface CommandSpec {
@@ -172,6 +174,57 @@ export function builtinCommands(): CommandSpec[] {
       async handler(ctx, deps) {
         await deps.sessions.reset(ctx.msg.platform, ctx.msg.chatId);
         await ctx.reply(texts.reset);
+      },
+    },
+    {
+      name: 'remember',
+      visible: true,
+      description: '让我记住一件事（如 /remember 我对花生过敏）',
+      usage: '/remember <内容>',
+      async handler(ctx, deps) {
+        if (!deps.memory) {
+          await ctx.reply('记忆功能未开启（config.yaml 里 memory.enabled）。');
+          return;
+        }
+        const fact = ctx.args.trim();
+        if (!fact) {
+          await ctx.reply('想让我记什么？例如：/remember 我对花生过敏');
+          return;
+        }
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        const existing = await deps.memory.load(key);
+        await deps.memory.save(key, existing ? `${existing}\n- ${fact}` : `- ${fact}`);
+        await ctx.reply(`记住了：${fact}`);
+      },
+    },
+    {
+      name: 'memory',
+      visible: true,
+      description: '查看我记住了关于你的什么',
+      usage: '/memory',
+      async handler(ctx, deps) {
+        if (!deps.memory) {
+          await ctx.reply('记忆功能未开启（config.yaml 里 memory.enabled）。');
+          return;
+        }
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        const known = (await deps.memory.load(key)) || '还没有关于你的记忆，聊着聊着就有了。';
+        await ctx.reply(known);
+      },
+    },
+    {
+      name: 'forget',
+      visible: true,
+      description: '清空我记住的关于你的一切',
+      usage: '/forget',
+      async handler(ctx, deps) {
+        if (!deps.memory) {
+          await ctx.reply('记忆功能未开启（config.yaml 里 memory.enabled）。');
+          return;
+        }
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        await deps.memory.clear(key);
+        await ctx.reply('已清空关于你的记忆。我们重新认识一下吧。');
       },
     },
   ];

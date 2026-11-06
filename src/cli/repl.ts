@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { IncomingMessage, StreamReplyHandle } from '../adapters/types';
 import { loadConfig, loadEnvFile } from '../config/load';
 import { getProxyDispatcher } from '../proxy';
+import { UserMemoryStore } from '../memory/store';
 import { BotCore } from '../core/bot';
 import { SessionManager } from '../core/session';
 import { buildRegistry } from '../llm/registry';
@@ -50,12 +51,14 @@ async function main(): Promise<void> {
       ? new FileSessionStore(join('data', 'sessions'), log)
       : new MemorySessionStore();
   const sessions = new SessionManager(store, config.session.maxHistoryMessages);
+  const memory = config.memory.enabled ? new UserMemoryStore(join('data', 'memory')) : undefined;
   const bot = new BotCore({
     registry,
     sessions,
     systemPrompt: config.persona.systemPrompt,
     personaName: config.persona.name,
     log,
+    memory,
   });
 
   const { entry, provider } = registry.resolve();

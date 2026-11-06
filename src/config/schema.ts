@@ -60,6 +60,7 @@ export const configSchema = z.object({
       domain: 'feishu',
       streaming: true,
     }),
+  memory: z.object({ enabled: z.boolean() }).prefault({ enabled: true }),
 });
 
 export type YamlConfig = z.infer<typeof configSchema>;
@@ -87,4 +88,5 @@ export interface ResolvedConfig {
     domain: 'feishu' | 'lark';
     streaming: boolean;
   };
+  memory: { enabled: boolean };
 }

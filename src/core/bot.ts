@@ -1,6 +1,7 @@
 import type { IncomingMessage } from '../adapters/types';
 import type { Logger } from '../log';
 import type { LlmRegistry } from '../llm/registry';
+import { buildExtractPrompt, memoryKeyOf, type UserMemoryStore } from '../memory/store';
 import { texts } from '../text';
 import { builtinCommands, CommandRegistry, parseCommand, type CommandDeps } from './commands';
 import type { SessionManager } from './session';
@@ -11,6 +12,8 @@ export interface BotCoreOptions {
   systemPrompt: string;
   personaName: string;
   log: Logger;
+  /** 跨会话用户记忆；缺省 = 记忆功能关闭 */
+  memory?: UserMemoryStore;
 }
 
 /** 平台无关的消息管道：命令路由 → 群聊过滤 → 会话装载 → LLM 流式回复 → 历史回写 */
@@ -19,14 +22,17 @@ export class BotCore {
   private readonly deps: CommandDeps;
   private readonly log: Logger;
   private readonly systemPrompt: string;
+  private readonly memory: UserMemoryStore | undefined;
 
   constructor(opts: BotCoreOptions) {
     this.log = opts.log;
     this.systemPrompt = opts.systemPrompt;
+    this.memory = opts.memory;
     this.deps = {
       registry: opts.registry,
       sessions: opts.sessions,
       personaName: opts.personaName,
+      memory: opts.memory,
       commands: null as unknown as CommandRegistry,
     };
     this.commands = new CommandRegistry(builtinCommands());
@@ -72,8 +78,9 @@ export class BotCore {
       role: 'user' as const,
       content: msg.isGroup ? `${msg.senderName}: ${text}` : text,
     };
+    const systemContent = await this.systemWithMemory(msg);
     const messages = [
-      { role: 'system' as const, content: this.systemPrompt },
+      { role: 'system' as const, content: systemContent },
       ...session.history,
       userMsg,
     ];
@@ -92,5 +99,46 @@ export class BotCore {
       return;
     }
     await sessions.appendTurn(session, userMsg, { role: 'assistant', content: full });
+    // 记忆提取在回复完成后后台进行，不阻塞、失败静默
+    void this.extractMemory(msg, text, full, session.modelAlias);
+  }
+
+  private async systemWithMemory(msg: IncomingMessage): Promise<string> {
+    if (!this.memory) return this.systemPrompt;
+    try {
+      const known = await this.memory.load(memoryKeyOf(msg.platform, msg.chatId, msg.senderId));
+      if (!known) return this.systemPrompt;
+      return `${this.systemPrompt}\n\n## 关于这位用户的已知信息（可能过时，谨慎参考）\n${known}`;
+    } catch {
+      return this.systemPrompt;
+    }
+  }
+
+  private async extractMemory(
+    msg: IncomingMessage,
+    userText: string,
+    replyText: string,
+    modelAlias?: string,
+  ): Promise<void> {
+    if (!this.memory) {
+      console.error('[debug] extract skipped: memory undefined');
+      return;
+    }
+    try {
+      const key = memoryKeyOf(msg.platform, msg.chatId, msg.senderId);
+      const existing = await this.memory.load(key);
+      const transcript = msg.isGroup
+        ? `${msg.senderName}: ${userText}`
+        : `用户：${userText}\n助手：${replyText}`;
+      const prompt = buildExtractPrompt(existing, transcript);
+      const next = (
+        await this.deps.registry.chat(modelAlias, [{ role: 'user', content: prompt }])
+      ).trim();
+      if (!next || next === existing) return;
+      await this.memory.save(key, next);
+      console.error('[debug] memory saved');
+    } catch (err) {
+      this.log.warn({ err, platform: msg.platform }, '记忆提取失败（不影响对话）');
+    }
   }
 }

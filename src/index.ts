@@ -8,6 +8,7 @@ import { BotCore } from './core/bot';
 import { SessionManager } from './core/session';
 import { buildRegistry } from './llm/registry';
 import { createLogger } from './log';
+import { UserMemoryStore } from './memory/store';
 import { FileSessionStore } from './stores/file';
 import { MemorySessionStore } from './stores/memory';
 import { VERSION } from './version';
@@ -30,12 +31,14 @@ async function main(): Promise<void> {
       ? new FileSessionStore(join('data', 'sessions'), log)
       : new MemorySessionStore();
   const sessions = new SessionManager(store, config.session.maxHistoryMessages);
+  const memory = config.memory.enabled ? new UserMemoryStore(join('data', 'memory')) : undefined;
   const bot = new BotCore({
     registry,
     sessions,
     systemPrompt: config.persona.systemPrompt,
     personaName: config.persona.name,
     log,
+    memory,
   });
 
   const adapters: PlatformAdapter[] = [];
