@@ -1,0 +1,99 @@
+import type { Attachment, PlatformId } from '../types';
+
+export interface TelegramFromInfo {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+}
+
+export interface TelegramEntity {
+  type: string;
+  offset: number;
+  length: number;
+}
+
+export interface TelegramMessageLike {
+  chat: { id: number | string; type: string };
+  from?: TelegramFromInfo;
+  text?: string;
+  caption?: string;
+  entities?: TelegramEntity[];
+  reply_to_message?: { from?: TelegramFromInfo };
+  photo?: unknown[];
+  voice?: unknown;
+  audio?: unknown;
+  video?: unknown;
+  document?: unknown;
+  sticker?: unknown;
+}
+
+export interface NormalizedTelegramMessage {
+  platform: PlatformId;
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  isGroup: boolean;
+  isTargeted: boolean;
+  text: string;
+  attachments: Attachment[];
+}
+
+function senderNameOf(from: TelegramFromInfo | undefined): string {
+  if (!from) return 'Unknown';
+  const name = [from.first_name, from.last_name].filter(Boolean).join(' ').trim();
+  return name || from.username || String(from.id);
+}
+
+function attachmentsOf(msg: TelegramMessageLike): Attachment[] {
+  const out: Attachment[] = [];
+  if (msg.photo) out.push({ type: 'image' });
+  if (msg.voice || msg.audio) out.push({ type: 'audio' });
+  if (msg.video) out.push({ type: 'file' });
+  if (msg.document) out.push({ type: 'file' });
+  if (msg.sticker) out.push({ type: 'other' });
+  return out;
+}
+
+/**
+ * 把 Telegram update 中的 message 归一化为平台无关的消息体。
+ * 群聊仅在 @bot 或回复 bot 消息时 targeted，且剥离 @botname 前缀；
+ * 私聊恒 targeted。
+ */
+export function normalizeTelegramMessage(
+  msg: TelegramMessageLike,
+  bot: { id: number; username: string },
+): NormalizedTelegramMessage {
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
+  const rawText = msg.text ?? msg.caption ?? '';
+
+  let isTargeted = !isGroup;
+  let text = rawText;
+
+  if (isGroup) {
+    const mention = (msg.entities ?? []).some((e) => {
+      if (e.type !== 'mention') return false;
+      return (
+        rawText.slice(e.offset, e.offset + e.length).toLowerCase() ===
+        `@${bot.username.toLowerCase()}`
+      );
+    });
+    const replyToBot = msg.reply_to_message?.from?.id === bot.id;
+    isTargeted = mention || replyToBot;
+    if (isTargeted) {
+      text = rawText.replace(new RegExp(`@${bot.username}`, 'gi'), '');
+    }
+  }
+  text = text.trim();
+
+  return {
+    platform: 'telegram',
+    chatId: String(msg.chat.id),
+    senderId: String(msg.from?.id ?? ''),
+    senderName: senderNameOf(msg.from),
+    isGroup,
+    isTargeted,
+    text,
+    attachments: attachmentsOf(msg),
+  };
+}

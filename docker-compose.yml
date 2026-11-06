@@ -1,0 +1,17 @@
+services:
+  moss-bots:
+    build: .
+    image: moss-bots:latest
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./prompts:/app/prompts:ro
+      - ./data:/app/data
+    healthcheck:
+      test: ['CMD-SHELL', 'ps | grep -v grep | grep -q dist/index.js']
+      interval: 30s
+      timeout: 5s
+      retries: 3

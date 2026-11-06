@@ -1,0 +1,12 @@
+export const texts = {
+  welcome: (name: string) => `你好，我是 ${name}。直接发消息就能聊，发送 /help 查看可用命令。`,
+  helpHeader: '可用命令：',
+  unknownCommand: (name: string) => `未知的命令 /${name}，发送 /help 查看可用命令。`,
+  unsupportedAttachment: '暂时只支持文字消息，图片等能力还在路上。',
+  currentModel: (alias: string) => `当前模型: ${alias}`,
+  modelSwitched: (alias: string) => `已切换模型: ${alias}`,
+  unknownModel: (alias: string, available: string[]) =>
+    `未知模型 "${alias}"。可用模型: ${available.join(', ')}`,
+  reset: '已清空当前会话的对话历史。',
+  internalError: '出了点问题，请稍后再试。',
+};

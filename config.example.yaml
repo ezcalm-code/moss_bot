@@ -1,0 +1,45 @@
+# moss-bots 配置样例：复制为 config.yaml 后按需修改。
+# 密钥一律通过环境变量注入：配置里只写环境变量「名」（apiKeyEnv），值放 .env。
+
+log:
+  level: info # debug | info | warn | error
+
+persona:
+  name: Moss
+  systemPromptFile: ./prompts/default.md # 相对 config.yaml 所在目录；也可用 systemPrompt: | 内联
+
+models:
+  default: grok # 默认模型 alias，缺省取 entries[0]
+  entries:
+    - alias: grok
+      provider: xai
+      model: grok-4-mini
+    - alias: ds-chat
+      provider: deepseek
+      model: deepseek-chat
+
+providers:
+  xai:
+    baseUrl: https://api.x.ai/v1
+    apiKeyEnv: XAI_API_KEY
+  deepseek:
+    baseUrl: https://api.deepseek.com/v1
+    apiKeyEnv: DEEPSEEK_API_KEY
+  # local:                          # Ollama / vLLM 等 OpenAI 兼容本地端点
+  #   baseUrl: http://localhost:11434/v1
+  #   apiKeyEnv: LOCAL_API_KEY      # Ollama 不校验 key，值随意
+
+session:
+  store: memory # memory | file（file 落盘到 data/sessions/）
+  maxHistoryMessages: 40
+
+telegram:
+  enabled: false
+  botTokenEnv: TELEGRAM_BOT_TOKEN
+
+feishu:
+  enabled: false
+  appIdEnv: FEISHU_APP_ID
+  appSecretEnv: FEISHU_APP_SECRET
+  domain: feishu # feishu | lark（国际版）
+  streaming: true # CardKit 流式卡片；失败自动降级为普通消息

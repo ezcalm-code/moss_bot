@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+
+# 本地配置与密钥，不入库
+config.yaml
+.env
+data/
