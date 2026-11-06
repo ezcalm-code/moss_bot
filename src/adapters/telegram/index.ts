@@ -67,8 +67,13 @@ export class TelegramAdapter implements PlatformAdapter {
       await this.dispatch?.(msg);
     });
 
-    // 丢弃长轮询启动前积压的更新，避免重启后回复历史消息
-    await this.grammy.api.deleteWebhook({ drop_pending_updates: true });
+    // 丢弃长轮询启动前积压的更新，避免重启后回复历史消息；
+    // 网络抖动时降级继续（后果只是可能处理少量积压消息）
+    try {
+      await this.grammy.api.deleteWebhook({ drop_pending_updates: true });
+    } catch (err) {
+      this.opts.log.warn({ err }, 'telegram deleteWebhook 失败，跳过积压清理继续启动');
+    }
     void this.grammy.start({
       onStart: (me) => {
         this.opts.log.info({ username: me.username }, 'telegram bot 已启动（长轮询）');
