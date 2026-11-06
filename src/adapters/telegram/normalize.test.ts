@@ -84,6 +84,45 @@ describe('normalizeTelegramMessage', () => {
     expect(m.isTargeted).toBe(false);
   });
 
+  it('群聊 bot_command 指向本 bot 时触发（/help@moss_bot）', () => {
+    const text = '/help@moss_bot';
+    const m = normalizeTelegramMessage(
+      base({
+        chat: { id: 1, type: 'supergroup' },
+        text,
+        entities: [{ type: 'bot_command', offset: 0, length: text.length }],
+      }),
+      bot,
+    );
+    expect(m.isTargeted).toBe(true);
+    expect(m.text).toBe('/help');
+  });
+
+  it('群聊裸命令视为对本 bot（privacy off 场景）', () => {
+    const m = normalizeTelegramMessage(
+      base({
+        chat: { id: 1, type: 'group' },
+        text: '/compact',
+        entities: [{ type: 'bot_command', offset: 0, length: 8 }],
+      }),
+      bot,
+    );
+    expect(m.isTargeted).toBe(true);
+  });
+
+  it('群聊命令指向其他 bot 时不触发', () => {
+    const text = '/weather@other_bot';
+    const m = normalizeTelegramMessage(
+      base({
+        chat: { id: 1, type: 'group' },
+        text,
+        entities: [{ type: 'bot_command', offset: 0, length: text.length }],
+      }),
+      bot,
+    );
+    expect(m.isTargeted).toBe(false);
+  });
+
   it('带图片的消息归一化出 image attachment', () => {
     const m = normalizeTelegramMessage(base({ photo: [{}] }), bot);
     expect(m.attachments).toEqual([{ type: 'image' }]);

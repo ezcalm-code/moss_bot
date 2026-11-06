@@ -79,7 +79,16 @@ export function normalizeTelegramMessage(
       );
     });
     const replyToBot = msg.reply_to_message?.from?.id === bot.id;
-    isTargeted = mention || replyToBot;
+    // 群聊命令（bot_command entity）：/cmd@本bot 视为对本 bot；
+    // /cmd@其他bot 让给对方；裸 /cmd 按 Telegram 群组惯例视为对本 bot。
+    let commandVerdict = false;
+    for (const e of msg.entities ?? []) {
+      if (e.type !== 'bot_command') continue;
+      const cmd = rawText.slice(e.offset, e.offset + e.length).toLowerCase();
+      commandVerdict = cmd.includes('@') ? cmd.includes(`@${bot.username.toLowerCase()}`) : true;
+      break;
+    }
+    isTargeted = mention || replyToBot || commandVerdict;
     if (isTargeted) {
       text = rawText.replace(new RegExp(`@${bot.username}`, 'gi'), '');
     }
