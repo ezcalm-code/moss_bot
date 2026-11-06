@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** 记忆 key：platform:chatId:senderId（群聊按说话人各存一份） */
+/** 记忆 key：platform:senderId——画像跟人走，同一用户跨群聊/私聊共享（会话历史才按 chat 分） */
 export type MemoryKey = string;
 
 /**
@@ -44,8 +44,8 @@ export class UserMemoryStore {
   }
 }
 
-export function memoryKeyOf(platform: string, chatId: string, senderId: string): MemoryKey {
-  return `${platform}:${chatId}:${senderId}`;
+export function memoryKeyOf(platform: string, senderId: string): MemoryKey {
+  return `${platform}:${senderId}`;
 }
 
 /**
@@ -70,6 +70,7 @@ export function buildExtractPrompt(existing: string, transcript: string): string
     '',
     '输出规则：',
     '- 用 Markdown 列表输出合并后的完整新记忆，每条一行（- 开头）',
+    '- 这些记忆的主人就是对话中的用户本人；群聊里对话以「昵称：内容」呈现时，把昵称当作该用户的称呼一并记录',
     '- 与现有记忆冲突时以最新对话为准；没有新信息就原样输出现有记忆，不要加任何解释',
     '- 总长超过 500 字时自行精简合并最重要的条目',
     '',

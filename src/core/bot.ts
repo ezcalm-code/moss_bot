@@ -106,9 +106,9 @@ export class BotCore {
   private async systemWithMemory(msg: IncomingMessage): Promise<string> {
     if (!this.memory) return this.systemPrompt;
     try {
-      const known = await this.memory.load(memoryKeyOf(msg.platform, msg.chatId, msg.senderId));
+      const known = await this.memory.load(memoryKeyOf(msg.platform, msg.senderId));
       if (!known) return this.systemPrompt;
-      return `${this.systemPrompt}\n\n## 关于这位用户的已知信息（可能过时，谨慎参考）\n${known}`;
+      return `${this.systemPrompt}\n\n## 关于这位用户的已知信息（描述的就是当前对话的用户本人，昵称可能来自群聊；可能过时，谨慎参考）\n${known}`;
     } catch {
       return this.systemPrompt;
     }
@@ -125,7 +125,7 @@ export class BotCore {
       return;
     }
     try {
-      const key = memoryKeyOf(msg.platform, msg.chatId, msg.senderId);
+      const key = memoryKeyOf(msg.platform, msg.senderId);
       const existing = await this.memory.load(key);
       const transcript = msg.isGroup
         ? `${msg.senderName}: ${userText}`

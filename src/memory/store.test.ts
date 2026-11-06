@@ -20,15 +20,15 @@ afterEach(() => {
 describe('UserMemoryStore', () => {
   it('save/load 往返', async () => {
     const store = newStore();
-    await store.save('telegram:1:u1', '- 用户叫小明');
-    expect(await store.load('telegram:1:u1')).toBe('- 用户叫小明');
+    await store.save('telegram:u1', '- 用户叫小明');
+    expect(await store.load('telegram:u1')).toBe('- 用户叫小明');
   });
 
   it('key 中的冒号被安全编码', async () => {
     const store = newStore();
-    await store.save('telegram:1:u1', 'x');
-    const key = memoryKeyOf('telegram', '1', 'u1');
-    expect(key).toBe('telegram:1:u1');
+    await store.save('telegram:u1', 'x');
+    const key = memoryKeyOf('telegram', 'u1');
+    expect(key).toBe('telegram:u1');
     expect(await store.load(key)).toBe('x');
   });
 

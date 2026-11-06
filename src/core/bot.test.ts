@@ -270,7 +270,7 @@ describe('memory', () => {
 
   it('已有画像时注入 system prompt（messages[0] 含已知信息）', async () => {
     const memory = newMemory();
-    await memory.save('telegram:1:u1', '- 用户叫小明');
+    await memory.save('telegram:u1', '- 用户叫小明');
     const { bot, calls } = makeDeps(memory);
     await bot.handle(fakeMsg('你好').msg);
     const sys = calls[0]?.messages[0]?.content ?? '';
@@ -290,7 +290,7 @@ describe('memory', () => {
     const { bot, calls, sessions } = makeDeps(memory);
     await bot.handle(fakeMsg('我叫小明').msg);
     await vi.waitFor(async () => {
-      expect(await memory.load('telegram:1:u1')).toBe('Hello!');
+      expect(await memory.load('telegram:u1')).toBe('Hello!');
     });
     // 提取调用发生了：聊天(streamChat) 1 次 + 提取(chat) 1 次
     expect(calls.length).toBe(2);
@@ -354,3 +354,40 @@ describe('/remember /memory /forget', () => {
     ).toEqual(['compact', 'forget', 'help', 'memory', 'model', 'models', 'remember', 'reset']);
   });
 });
+
+describe('memory 跨场景共享', () => {
+  const tmpDirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  it('群里记的画像，私聊（不同 chatId、相同 senderId）同样注入', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moss-mem-x-'));
+    tmpDirs.push(dir);
+    const { bot, calls } = makeDeps(new UserMemoryStore(dir));
+    const sender = { senderId: 'u9' };
+
+    // 群聊（chatId=群号）中告知身份 → 后台提取落盘到 telegram:u9
+    await bot.handle(
+      fakeMsg('我是做后端开发的', { isGroup: true, chatId: 'group-1', ...sender }).msg,
+    );
+    await vi.waitFor(async () => {
+      expect(await memoryHas(dir, 'telegram:u9')).toBe(true);
+    });
+
+    // 私聊（chatId=私聊号，同一 senderId）提问 → 画像应注入 system prompt
+    // （提问本身又会触发新一轮提取调用，所以用 find 找注入了画像的聊天调用）
+    const pm = fakeMsg('我是做什么的？', { chatId: 'private-9', ...sender });
+    await bot.handle(pm.msg);
+    const chatCall = calls.find((c) => c.messages[0]?.content.includes('已知信息'));
+    expect(chatCall).toBeTruthy();
+    expect(chatCall?.messages[0]?.content).toContain('Hello!'); // fake provider 的提取结果即画像内容
+    expect(pm.state.appended.length).toBeGreaterThan(0);
+  });
+});
+
+async function memoryHas(dir: string, key: string): Promise<boolean> {
+  return (await new UserMemoryStore(dir).load(key)) !== '';
+}

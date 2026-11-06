@@ -191,7 +191,7 @@ export function builtinCommands(): CommandSpec[] {
           await ctx.reply('想让我记什么？例如：/remember 我对花生过敏');
           return;
         }
-        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.senderId);
         const existing = await deps.memory.load(key);
         await deps.memory.save(key, existing ? `${existing}\n- ${fact}` : `- ${fact}`);
         await ctx.reply(`记住了：${fact}`);
@@ -207,7 +207,7 @@ export function builtinCommands(): CommandSpec[] {
           await ctx.reply('记忆功能未开启（config.yaml 里 memory.enabled）。');
           return;
         }
-        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.senderId);
         const known = (await deps.memory.load(key)) || '还没有关于你的记忆，聊着聊着就有了。';
         await ctx.reply(known);
       },
@@ -222,7 +222,7 @@ export function builtinCommands(): CommandSpec[] {
           await ctx.reply('记忆功能未开启（config.yaml 里 memory.enabled）。');
           return;
         }
-        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.chatId, ctx.msg.senderId);
+        const key = memoryKeyOf(ctx.msg.platform, ctx.msg.senderId);
         await deps.memory.clear(key);
         await ctx.reply('已清空关于你的记忆。我们重新认识一下吧。');
       },
