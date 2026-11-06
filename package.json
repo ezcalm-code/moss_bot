@@ -1,6 +1,6 @@
 {
   "name": "moss-bots",
-  "version": "0.1.3",
+  "version": "1.0.0",
   "description": "Open-source chat bot for Telegram & Feishu, powered by any OpenAI-compatible LLM.",
   "keywords": [
     "telegram-bot",
