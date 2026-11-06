@@ -91,7 +91,12 @@ async function main(): Promise<void> {
   for (const adapter of adapters) {
     adapter.setDispatcher((msg) => bot.handle(msg));
     if (adapter.registerCommands) {
-      await adapter.registerCommands(bot.commands.menu());
+      try {
+        await adapter.registerCommands(bot.commands.menu());
+      } catch (err) {
+        // 命令菜单只是 UI 便利功能，注册失败不应阻止 bot 上线
+        log.warn({ err, adapter: adapter.id }, '命令菜单注册失败，继续启动');
+      }
     }
   }
 
