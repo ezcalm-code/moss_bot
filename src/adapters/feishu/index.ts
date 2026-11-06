@@ -32,8 +32,12 @@ async function fetchBotOpenId(appId: string, appSecret: string, host: string): P
   const infoRes = await fetch(`${host}/open-apis/bot/v3/info`, {
     headers: { authorization: `Bearer ${token}` },
   });
-  const infoData = (await infoRes.json()) as { data?: { open_id?: string } };
-  const openId = infoData.data?.open_id;
+  const infoData = (await infoRes.json()) as {
+    bot?: { open_id?: string };
+    data?: { open_id?: string; bot?: { open_id?: string } };
+  };
+  // 实测响应顶层即 bot.open_id（bot 能力开启前接口报 11205）
+  const openId = infoData.data?.open_id ?? infoData.data?.bot?.open_id ?? infoData.bot?.open_id;
   if (!openId) {
     throw new Error('获取机器人信息失败：bot/v3/info 未返回 open_id');
   }
@@ -100,6 +104,7 @@ export class FeishuAdapter implements PlatformAdapter {
     const chatId = normalized.chatId;
     const cardApi = this.makeCardApi();
     const messageId = (data as { message?: { message_id?: string } }).message?.message_id;
+    const parentId = (data as { message?: { parent_id?: string } }).message?.parent_id;
     const imageKeys = this.collectImageKeys(data);
     const msg: IncomingMessage = {
       ...normalized,
@@ -112,16 +117,40 @@ export class FeishuAdapter implements PlatformAdapter {
           ? new FeishuStreamReply(cardApi, chatId, this.opts.log)
           : new FeishuSimpleReply(cardApi, chatId, this.opts.log),
       getAttachmentDataUrls: async () => {
-        if (!messageId || imageKeys.length === 0) return [];
-        const urls: string[] = [];
-        for (const imageKey of imageKeys) {
-          const buf = await this.downloadImageResource(messageId, imageKey);
-          urls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
+        // 本条是图片消息：直接下载
+        if (messageId && imageKeys.length > 0) {
+          const urls: string[] = [];
+          for (const imageKey of imageKeys) {
+            const buf = await this.downloadImageResource(messageId, imageKey);
+            urls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
+          }
+          return urls;
         }
-        return urls;
+        // 回复了一条图片消息（图片在被回复消息里）：反查 parent 消息取 image_key
+        if (messageId && parentId) {
+          const parentKey = await this.fetchParentImageKey(parentId);
+          if (parentKey) {
+            const buf = await this.downloadImageResource(parentId, parentKey);
+            return [`data:image/jpeg;base64,${buf.toString('base64')}`];
+          }
+        }
+        return [];
       },
     };
     await this.dispatch?.(msg);
+  }
+
+  /** 回复场景：反查被回复消息，若其为图片则返回 image_key */
+  private async fetchParentImageKey(parentId: string): Promise<string | undefined> {
+    const res = await this.client.im.v1.message.get({ path: { message_id: parentId } });
+    const item = res.data?.items?.[0];
+    if (item?.msg_type !== 'image') return undefined;
+    try {
+      const key = JSON.parse(item.body?.content ?? '{}')?.image;
+      return typeof key === 'string' ? key : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** 收集图片消息的 image_key（content JSON 里的 image 字段） */

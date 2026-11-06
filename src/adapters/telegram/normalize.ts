@@ -24,8 +24,22 @@ export interface TelegramMessageLike {
   voice?: unknown;
   audio?: unknown;
   video?: unknown;
-  document?: unknown;
+  document?: { file_id?: string; mime_type?: string };
   sticker?: unknown;
+}
+
+/** 从消息（含被回复消息）中选出图片的 file_id：photo 取最大尺寸，图片文档次之 */
+export function pickImageFileId(msg: TelegramMessageLike | undefined): string | undefined {
+  if (!msg) return undefined;
+  const photoSizes = msg.photo as { file_id: string }[] | undefined;
+  if (Array.isArray(photoSizes) && photoSizes.length > 0) {
+    return photoSizes[photoSizes.length - 1]?.file_id;
+  }
+  const doc = msg.document as { file_id?: string; mime_type?: string } | undefined;
+  if (doc?.file_id && doc.mime_type?.startsWith('image/')) {
+    return doc.file_id;
+  }
+  return undefined;
 }
 
 export interface NormalizedTelegramMessage {

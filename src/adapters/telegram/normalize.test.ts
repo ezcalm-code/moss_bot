@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTelegramMessage, type TelegramMessageLike } from './normalize';
+import { normalizeTelegramMessage, pickImageFileId, type TelegramMessageLike } from './normalize';
 
 const bot = { id: 42, username: 'moss_bot' };
 
@@ -132,5 +132,43 @@ describe('normalizeTelegramMessage', () => {
     const m = normalizeTelegramMessage(base({ from: undefined }), bot);
     expect(m.senderId).toBe('');
     expect(m.senderName).toBe('Unknown');
+  });
+});
+
+describe('pickImageFileId', () => {
+  it('本条 photo 取最大尺寸的 file_id', () => {
+    const m = {
+      chat: { id: 1, type: 'private' },
+      photo: [{ file_id: 'small' }, { file_id: 'large' }],
+    };
+    expect(pickImageFileId(m)).toBe('large');
+  });
+
+  it('图片文档返回其 file_id', () => {
+    expect(
+      pickImageFileId({
+        chat: { id: 1, type: 'private' },
+        document: { file_id: 'doc1', mime_type: 'image/png' },
+      }),
+    ).toBe('doc1');
+  });
+
+  it('非图片文档返回 undefined', () => {
+    expect(
+      pickImageFileId({
+        chat: { id: 1, type: 'private' },
+        document: { file_id: 'doc2', mime_type: 'application/pdf' },
+      }),
+    ).toBeUndefined();
+    expect(pickImageFileId(undefined)).toBeUndefined();
+  });
+
+  it('被回复消息中的图片可被选中（回复图片场景）', () => {
+    const m = {
+      chat: { id: 1, type: 'group' },
+      reply_to_message: { from: { id: 7 }, photo: [{ file_id: 'replied-photo' }] },
+    };
+    expect(pickImageFileId(m)).toBeUndefined(); // 本条无图
+    expect(pickImageFileId(m.reply_to_message as TelegramMessageLike)).toBe('replied-photo');
   });
 });
