@@ -25,6 +25,9 @@ function cliMessage(text: string): IncomingMessage {
     async reply(t) {
       console.log(t);
     },
+    async getAttachmentDataUrls() {
+      return [];
+    },
     async startStreamReply(): Promise<StreamReplyHandle> {
       return {
         async append(delta) {

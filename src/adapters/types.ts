@@ -20,6 +20,11 @@ export interface IncomingMessage {
   readonly raw: unknown;
   reply(text: string): Promise<void>;
   startStreamReply(): Promise<StreamReplyHandle>;
+  /**
+   * 下载本消息中的图片并转为 base64 data URL（仅 image 类型；无图片返回空数组）。
+   * 由 core 在组装多模态请求时按需调用，实现细节（鉴权/下载/编码）在适配器内。
+   */
+  getAttachmentDataUrls(): Promise<string[]>;
 }
 
 export interface StreamReplyHandle {

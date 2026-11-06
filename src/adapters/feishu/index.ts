@@ -99,6 +99,8 @@ export class FeishuAdapter implements PlatformAdapter {
 
     const chatId = normalized.chatId;
     const cardApi = this.makeCardApi();
+    const messageId = (data as { message?: { message_id?: string } }).message?.message_id;
+    const imageKeys = this.collectImageKeys(data);
     const msg: IncomingMessage = {
       ...normalized,
       raw: data,
@@ -109,8 +111,44 @@ export class FeishuAdapter implements PlatformAdapter {
         this.opts.streaming
           ? new FeishuStreamReply(cardApi, chatId, this.opts.log)
           : new FeishuSimpleReply(cardApi, chatId, this.opts.log),
+      getAttachmentDataUrls: async () => {
+        if (!messageId || imageKeys.length === 0) return [];
+        const urls: string[] = [];
+        for (const imageKey of imageKeys) {
+          const buf = await this.downloadImageResource(messageId, imageKey);
+          urls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
+        }
+        return urls;
+      },
     };
     await this.dispatch?.(msg);
+  }
+
+  /** 收集图片消息的 image_key（content JSON 里的 image 字段） */
+  private collectImageKeys(data: unknown): string[] {
+    const message = (data as { message?: { message_type?: string; content?: string } }).message;
+    if (message?.message_type !== 'image') return [];
+    try {
+      const key = JSON.parse(message.content ?? '{}')?.image;
+      return typeof key === 'string' ? [key] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** 通过 SDK 下载飞书图片资源为 Buffer */
+  private async downloadImageResource(messageId: string, imageKey: string): Promise<Buffer> {
+    const res = await this.client.im.v1.messageResource.get({
+      path: { message_id: messageId, file_key: imageKey },
+      params: { type: 'image' },
+    });
+    // SDK 返回 NodeJS.ReadableStream：收集为 Buffer
+    const chunks: Buffer[] = [];
+    const stream = res as unknown as NodeJS.ReadableStream;
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    return Buffer.concat(chunks);
   }
 
   private makeCardApi(): FeishuCardApi {

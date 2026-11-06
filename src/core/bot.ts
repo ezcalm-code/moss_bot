@@ -1,6 +1,7 @@
 import type { IncomingMessage } from '../adapters/types';
 import type { Logger } from '../log';
 import type { LlmRegistry } from '../llm/registry';
+import type { MessageContent } from '../llm/types';
 import { buildExtractPrompt, memoryKeyOf, type UserMemoryStore } from '../memory/store';
 import { texts } from '../text';
 import { builtinCommands, CommandRegistry, parseCommand, type CommandDeps } from './commands';
@@ -43,23 +44,32 @@ export class BotCore {
     try {
       if (!msg.isTargeted) return;
       const text = msg.text.trim();
-      if (!text) {
+      const hasImage = msg.attachments.some((a) => a.type === 'image');
+      const hasOtherAttachments = msg.attachments.length > (hasImage ? 1 : 0);
+
+      if (!text && !hasImage) {
         if (msg.attachments.length > 0) {
           await msg.reply(texts.unsupportedAttachment);
         }
         return;
       }
-      const parsed = parseCommand(text);
-      if (parsed) {
-        const spec = this.commands.lookup(parsed.name);
-        if (!spec) {
-          await msg.reply(texts.unknownCommand(parsed.name));
-          return;
-        }
-        await spec.handler({ msg, args: parsed.args, reply: (t) => msg.reply(t) }, this.deps);
+      if (hasOtherAttachments) {
+        await msg.reply(texts.unsupportedAttachment);
         return;
       }
-      await this.chat(msg, text);
+      if (text) {
+        const parsed = parseCommand(text);
+        if (parsed) {
+          const spec = this.commands.lookup(parsed.name);
+          if (!spec) {
+            await msg.reply(texts.unknownCommand(parsed.name));
+            return;
+          }
+          await spec.handler({ msg, args: parsed.args, reply: (t) => msg.reply(t) }, this.deps);
+          return;
+        }
+      }
+      await this.chat(msg, text, hasImage);
     } catch (err) {
       this.log.error({ err, platform: msg.platform, chatId: msg.chatId }, '处理消息失败');
       try {
@@ -70,19 +80,36 @@ export class BotCore {
     }
   }
 
-  private async chat(msg: IncomingMessage, text: string): Promise<void> {
+  private async chat(msg: IncomingMessage, text: string, hasImage: boolean): Promise<void> {
     const { registry, sessions } = this.deps;
     const session = await sessions.get(msg.platform, msg.chatId);
+
+    let dataUrls: string[] = [];
+    if (hasImage) {
+      dataUrls = await msg.getAttachmentDataUrls();
+      const model = registry.entryFor(session.modelAlias).model;
+      if (registry.isVisionBlocked(model)) {
+        await msg.reply(texts.noVision(registry.listAliases()));
+        return;
+      }
+    }
+
     // 群聊共享一份历史，拼上说话人名字区分角色
-    const userMsg = {
-      role: 'user' as const,
-      content: msg.isGroup ? `${msg.senderName}: ${text}` : text,
-    };
-    const systemContent = await this.systemWithMemory(msg);
+    const prefixedText = msg.isGroup ? `${msg.senderName}: ${text}` : text;
+    const requestContent: MessageContent = dataUrls.length
+      ? [
+          { type: 'text', text: prefixedText || '（用户发送了一张图片）' },
+          ...dataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+        ]
+      : prefixedText;
+    // 图片 base64 不进历史（体积原因）：历史里只留占位，仅当前请求带图
+    const historyContent =
+      dataUrls.length > 0 ? (text ? `[图片] ${text}` : '[图片]') : prefixedText;
+    const userMsg = { role: 'user' as const, content: historyContent };
     const messages = [
-      { role: 'system' as const, content: systemContent },
+      { role: 'system' as const, content: await this.systemWithMemory(msg) },
       ...session.history,
-      userMsg,
+      { role: 'user' as const, content: requestContent },
     ];
     const { entry, stream } = registry.streamChat(session.modelAlias, messages);
     const handle = await msg.startStreamReply();
@@ -95,6 +122,12 @@ export class BotCore {
       await handle.finish();
     } catch (err) {
       this.log.warn({ err, model: entry.model, platform: msg.platform }, 'LLM 流式回复失败');
+      // 带图请求被 API 拒绝（4xx）：运行时探测为该模型不支持视觉，记入缓存并引导用户换模型
+      if (dataUrls.length > 0 && isClientApiRejection(err)) {
+        registry.markNoVision(entry.model);
+        await handle.abort(new Error(texts.noVision(registry.listAliases())));
+        return;
+      }
       await handle.abort(err instanceof Error ? err : new Error(String(err)));
       return;
     }
@@ -120,10 +153,7 @@ export class BotCore {
     replyText: string,
     modelAlias?: string,
   ): Promise<void> {
-    if (!this.memory) {
-      console.error('[debug] extract skipped: memory undefined');
-      return;
-    }
+    if (!this.memory) return;
     try {
       const key = memoryKeyOf(msg.platform, msg.senderId);
       const existing = await this.memory.load(key);
@@ -136,9 +166,14 @@ export class BotCore {
       ).trim();
       if (!next || next === existing) return;
       await this.memory.save(key, next);
-      console.error('[debug] memory saved');
     } catch (err) {
       this.log.warn({ err, platform: msg.platform }, '记忆提取失败（不影响对话）');
     }
   }
+}
+
+/** openai SDK 的 APIError 带 status；4xx 视为请求被服务端拒绝（5xx 是服务端自身问题，不据此判定） */
+function isClientApiRejection(err: unknown): boolean {
+  const status = (err as { status?: number }).status;
+  return typeof status === 'number' && status >= 400 && status < 500;
 }

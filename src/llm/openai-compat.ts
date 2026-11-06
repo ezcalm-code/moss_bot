@@ -31,7 +31,11 @@ export class OpenAICompatProvider implements LLMProvider {
     const stream = await this.client.chat.completions.create(
       {
         model: opts.model,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        // openai SDK 的消息类型按 role 拆分为联合变体，此处统一断言；content 形状由 MessageContent 保证
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) as OpenAI.ChatCompletionMessageParam[],
         stream: true,
       },
       { signal: opts.signal },

@@ -63,6 +63,30 @@ export class TelegramAdapter implements PlatformAdapter {
           await ctx.api.sendMessage(chatId, text);
         },
         startStreamReply: async () => new TelegramStreamReply(ctx.api, chatId, this.opts.log),
+        getAttachmentDataUrls: async () => {
+          // photo 数组按尺寸升序排列，取最后一个（最大）；文档类图片也支持
+          let fileId: string | undefined;
+          const photoSizes = raw.photo as { file_id: string }[] | undefined;
+          if (Array.isArray(photoSizes) && photoSizes.length > 0) {
+            fileId = photoSizes[photoSizes.length - 1]?.file_id;
+          } else if (
+            raw.document &&
+            (raw.document as { mime_type?: string }).mime_type?.startsWith('image/')
+          ) {
+            fileId = (raw.document as { file_id: string }).file_id;
+          }
+          if (!fileId) return [];
+          const file = await ctx.api.getFile(fileId);
+          const url = `https://api.telegram.org/file/bot${this.opts.botToken}/${file.file_path}`;
+          const res = await fetch(url, {
+            dispatcher: this.opts.proxyDispatcher,
+          } as RequestInit);
+          if (!res.ok) {
+            throw new Error(`telegram 图片下载失败: HTTP ${res.status}`);
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          return [`data:image/jpeg;base64,${buf.toString('base64')}`];
+        },
       };
       await this.dispatch?.(msg);
     });

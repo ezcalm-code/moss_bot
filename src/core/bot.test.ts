@@ -15,8 +15,14 @@ import { SessionManager } from './session';
 const silentLog = pino({ level: 'silent' });
 
 function makeDeps(memory?: UserMemoryStore) {
-  const calls: { model: string; messages: { role: string; content: string }[] }[] = [];
-  const providerState = { fail: false };
+  const calls: { model: string; messages: { role: string; content: unknown }[] }[] = [];
+  const providerState: { fail: boolean; failStatus?: number } = { fail: false };
+  const throwIfFail = (): void => {
+    if (providerState.fail) throw new Error('boom');
+    if (providerState.failStatus !== undefined) {
+      throw Object.assign(new Error('api rejected'), { status: providerState.failStatus });
+    }
+  };
   const provider: LLMProvider = {
     id: 'fake',
     async *streamChat(messages, opts) {
@@ -24,7 +30,7 @@ function makeDeps(memory?: UserMemoryStore) {
         model: opts.model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
       });
-      if (providerState.fail) throw new Error('boom');
+      throwIfFail();
       yield 'Hel';
       yield 'lo!';
     },
@@ -33,7 +39,7 @@ function makeDeps(memory?: UserMemoryStore) {
         model: opts.model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
       });
-      if (providerState.fail) throw new Error('boom');
+      throwIfFail();
       return 'Hello!';
     },
   };
@@ -55,10 +61,16 @@ function makeDeps(memory?: UserMemoryStore) {
     log: silentLog,
     memory,
   });
-  return { bot, sessions, calls, setFail: (v: boolean) => (providerState.fail = v) };
+  return {
+    bot,
+    sessions,
+    calls,
+    setFail: (v: boolean) => (providerState.fail = v),
+    setFailWithStatus: (status: number) => (providerState.failStatus = status),
+  };
 }
 
-function fakeMsg(text: string, extra?: Partial<IncomingMessage>) {
+function fakeMsg(text: string, extra?: Partial<IncomingMessage> & { dataUrls?: string[] }) {
   const state = {
     replies: [] as string[],
     appended: [] as string[],
@@ -77,6 +89,9 @@ function fakeMsg(text: string, extra?: Partial<IncomingMessage>) {
     raw: undefined,
     async reply(t) {
       state.replies.push(t);
+    },
+    async getAttachmentDataUrls() {
+      return extra?.dataUrls ?? [];
     },
     async startStreamReply() {
       return {
@@ -246,9 +261,9 @@ describe('BotCore', () => {
     expect(session.history).toEqual([]);
   });
 
-  it('非文本消息提示暂不支持', async () => {
+  it('非图片附件（audio）提示暂不支持', async () => {
     const { bot } = makeDeps();
-    const { msg, state } = fakeMsg('', { attachments: [{ type: 'image' }] });
+    const { msg, state } = fakeMsg('', { attachments: [{ type: 'audio' }] });
     await bot.handle(msg);
     expect(state.replies.join('\n')).toContain('暂时只支持文字');
   });
@@ -381,7 +396,7 @@ describe('memory 跨场景共享', () => {
     // （提问本身又会触发新一轮提取调用，所以用 find 找注入了画像的聊天调用）
     const pm = fakeMsg('我是做什么的？', { chatId: 'private-9', ...sender });
     await bot.handle(pm.msg);
-    const chatCall = calls.find((c) => c.messages[0]?.content.includes('已知信息'));
+    const chatCall = calls.find((c) => String(c.messages[0]?.content).includes('已知信息'));
     expect(chatCall).toBeTruthy();
     expect(chatCall?.messages[0]?.content).toContain('Hello!'); // fake provider 的提取结果即画像内容
     expect(pm.state.appended.length).toBeGreaterThan(0);
@@ -391,3 +406,70 @@ describe('memory 跨场景共享', () => {
 async function memoryHas(dir: string, key: string): Promise<boolean> {
   return (await new UserMemoryStore(dir).load(key)) !== '';
 }
+
+describe('vision（图片理解）', () => {
+  const DATA_URL = 'data:image/jpeg;base64,aGVsbG8=';
+
+  it('带图消息走多模态数组请求，历史只留占位', async () => {
+    const { bot, calls, sessions } = makeDeps();
+    const { msg, state } = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: [DATA_URL],
+    });
+    await bot.handle(msg);
+    const sent = calls[0]?.messages.at(-1)?.content;
+    expect(Array.isArray(sent)).toBe(true);
+    const parts = sent as { type: string; text?: string; image_url?: { url: string } }[];
+    expect(parts[0]?.type).toBe('text');
+    expect(parts[1]?.type).toBe('image_url');
+    expect(parts[1]?.image_url?.url).toBe(DATA_URL);
+    expect(state.appended).toEqual(['Hel', 'lo!']);
+
+    const session = await sessions.get('telegram', '1');
+    expect(session.history[0]?.content).toBe('[图片] 这是什么'); // base64 不进历史
+  });
+
+  it('纯图无文字也能触发', async () => {
+    const { bot, calls } = makeDeps();
+    const { msg } = fakeMsg('', {
+      attachments: [{ type: 'image' }],
+      dataUrls: [DATA_URL],
+    });
+    await bot.handle(msg);
+    expect(calls.length).toBe(1);
+  });
+
+  it('带图请求被 4xx 拒绝 → 提示换模型并记入缓存', async () => {
+    const { bot, calls, setFailWithStatus } = makeDeps();
+    const first = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: [DATA_URL],
+    });
+    setFailWithStatus(400);
+    await bot.handle(first.msg);
+    expect(first.state.aborted?.message).toContain('不支持');
+    expect(first.state.finished).toBe(false);
+
+    // 缓存生效：再次发图直接提示，不再调用 LLM
+    const callsBefore = calls.length;
+    const second = fakeMsg('再看看这张', {
+      attachments: [{ type: 'image' }],
+      dataUrls: [DATA_URL],
+    });
+    await bot.handle(second.msg);
+    expect(second.state.replies.join('\n')).toContain('不支持');
+    expect(calls.length).toBe(callsBefore);
+  });
+
+  it('5xx 不误判为不支持（仍走普通错误文案）', async () => {
+    const { bot, setFailWithStatus } = makeDeps();
+    setFailWithStatus(500);
+    const { msg, state } = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: [DATA_URL],
+    });
+    await bot.handle(msg);
+    expect(state.aborted?.message).toContain('api rejected'); // 普通 abort 文案
+    expect(state.aborted?.message).not.toContain('不支持');
+  });
+});

@@ -5,12 +5,23 @@ import type { ChatMessage, LLMProvider } from './types';
 import type { Dispatcher } from 'undici';
 
 export class LlmRegistry {
+  /** 运行时探测：发图被 4xx 拒绝的模型记录在此，后续直接提示而非重试浪费调用 */
+  private readonly noVisionModels = new Set<string>();
+
   constructor(
     private readonly providers: ReadonlyMap<string, LLMProvider>,
     private readonly missingKeyHints: ReadonlyMap<string, string>,
     public readonly entries: readonly ModelEntry[],
     public readonly defaultAlias: string,
   ) {}
+
+  markNoVision(model: string): void {
+    this.noVisionModels.add(model);
+  }
+
+  isVisionBlocked(model: string): boolean {
+    return this.noVisionModels.has(model);
+  }
 
   listAliases(): string[] {
     return this.entries.map((e) => e.alias);

@@ -1,6 +1,12 @@
+/** 多模态内容段：文本与图片（图片以 base64 data URL 内联） */
+export type ContentPart =
+  { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
+export type MessageContent = string | ContentPart[];
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: MessageContent;
 }
 
 export interface ChatOptions {
