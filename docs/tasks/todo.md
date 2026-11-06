@@ -27,7 +27,8 @@
 - [x] Telegram 真机联调第一轮：bot 上线，AC3.1 私聊流式回复、AC3.4 命令菜单 PASS（2026-11-06）
 - [ ] AC3.2/3.3 群聊与超长回复真机测试（需先在 BotFather /setprivacy Disable）
 - [ ] 飞书真机联调（等自建应用凭据）
-- [ ] 提交代码 → 推远端 → CI 全绿 → tag v0.1.0
+- [x] 提交前脱敏：三轮敏感信息审查（密钥全在 gitignored .env；文档内部域名/服务名/bot 用户名/代理端口已脱敏）
+- [x] 提交代码 → 推远端 → CI 全绿 → tag v0.1.0（2026-11-06，github.com/ezcalm-code/moss_bot）
 
 ## 审查段
 
