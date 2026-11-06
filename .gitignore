@@ -6,5 +6,12 @@ coverage/
 
 # 本地配置与密钥，不入库
 config.yaml
+config.yaml.bak
+*.bak
 .env
 data/
+.idea/
+
+# 桌面配置工具构建产物
+moss-config.exe
+desktop/build/
