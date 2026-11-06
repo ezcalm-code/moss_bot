@@ -44,3 +44,8 @@
   证据：[v0.1-stage3-5/results.md](verification/v0.1-stage3-5/results.md)。
   教训：⑤ 飞书群聊 @ 判定需要 bot open_id，SDK 未封装 bot/v3/info，手写 REST（tenant_access_token + info）解决；
   ⑥ 卡片创建失败时降级文本只能发一次（append 里发一次 + finish 兜底一次会重复），统一由 finish/abort 兜底。
+- 2026-11-06 v0.1.1 人设重做发布（纯聊天搭子 + 活人感），REPL 三场景实测通过，真机重启生效。
+  证据：REPL 实测记录（拒绝爬虫请求/口头答疑/情绪接住）。
+  **事故记录**：格式修正时用 `git add -A`，把 `config.yaml.bak`（含内部网关域名与变量名，无 key 值）、`.idea/`、`moss-config.exe` 意外提交并推送——根因是 main 回退后 `.gitignore` 防护规则消失（规则在 feat 分支提交里），工作区本地文件裸奔。已立即 revert（7cc9553）并在 main 补齐防护（13b720d）。
+  教训：⑩ **分支切换/回退后必须先确认 .gitignore 仍覆盖全部本地产物，再执行 add**；提交前 `git status --short` 要逐行核对新增文件名，`add -A` 只允许在文件清单已知时使用；
+  ⑪ revert 不删历史：泄露文件内容在 4d5e79d commit 中仍可达，彻底清除需用户自行 force push（权限红线，工具不代执行）。
