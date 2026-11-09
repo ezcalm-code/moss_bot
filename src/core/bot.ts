@@ -219,13 +219,14 @@ export class BotCore {
   }
 
   private async systemWithMemory(msg: IncomingMessage): Promise<string> {
-    if (!this.memory) return this.systemPrompt;
+    const base = `${this.systemPrompt}\n\n${currentDateLine()}`;
+    if (!this.memory) return base;
     try {
       const known = await this.memory.load(memoryKeyOf(msg.platform, msg.senderId));
-      if (!known) return this.systemPrompt;
-      return `${this.systemPrompt}\n\n## 关于这位用户的已知信息（描述的就是当前对话的用户本人，昵称可能来自群聊；可能过时，谨慎参考）\n${known}`;
+      if (!known) return base;
+      return `${base}\n\n## 关于这位用户的已知信息（描述的就是当前对话的用户本人，昵称可能来自群聊；可能过时，谨慎参考）\n${known}`;
     } catch {
-      return this.systemPrompt;
+      return base;
     }
   }
 
@@ -258,4 +259,12 @@ export class BotCore {
 function isClientApiRejection(err: unknown): boolean {
   const status = (err as { status?: number }).status;
   return typeof status === 'number' && status >= 400 && status < 500;
+}
+
+/** 模型无时间感知（训练截止 + 无时钟），「今天/最近」类问题与搜索结果的日期归属都靠这行锚定 */
+function currentDateLine(): string {
+  const d = new Date();
+  const week = '日一二三四五六'[d.getDay()];
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `今天的日期是 ${date}（周${week}）。用户说「今天/昨天/最近」时以此为准；信息无法确认时效时，明确说明日期与不确定性。`;
 }

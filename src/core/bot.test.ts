@@ -279,7 +279,7 @@ describe('BotCore', () => {
       { role: 'user', content: '你好' },
       { role: 'assistant', content: 'Hello!' },
     ]);
-    expect(calls[0]?.messages[0]).toEqual({ role: 'system', content: 'SYS' });
+    expect(String(calls[0]?.messages[0]?.content)).toMatch(/^SYS/); // system prompt 含日期注入，前缀为 persona
     expect(calls[0]?.model).toBe('grok-a');
   });
 
@@ -362,10 +362,18 @@ describe('memory', () => {
     expect(sys).toContain('- 用户叫小明');
   });
 
+  it('system prompt 注入当天日期（模型无时间感知）', async () => {
+    const { bot, calls } = makeDeps();
+    await bot.handle(fakeMsg('你好').msg);
+    const sys = String(calls[0]?.messages[0]?.content ?? '');
+    expect(sys).toContain('今天的日期是');
+    expect(sys).toContain(`（周${'日一二三四五六'[new Date().getDay()]}）`);
+  });
+
   it('无画像时不注入（messages[0] 保持纯 persona）', async () => {
     const { bot, calls } = makeDeps(newMemory());
     await bot.handle(fakeMsg('你好').msg);
-    expect(calls[0]?.messages[0]?.content).toBe('SYS');
+    expect(String(calls[0]?.messages[0]?.content)).toMatch(/^SYS/);
   });
 
   it('回复后后台提取并写盘（vi.waitFor）', async () => {
@@ -384,7 +392,7 @@ describe('memory', () => {
   it('memory 未开启时无注入也无提取', async () => {
     const { bot, calls } = makeDeps();
     await bot.handle(fakeMsg('你好').msg);
-    expect(calls[0]?.messages[0]?.content).toBe('SYS');
+    expect(String(calls[0]?.messages[0]?.content)).toMatch(/^SYS/);
     expect(calls.length).toBe(1); // 只有聊天调用，无提取
   });
 });
