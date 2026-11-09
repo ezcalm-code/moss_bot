@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage } from '../adapters/types';
 import { LlmRegistry } from '../llm/registry';
 import { UserMemoryStore } from '../memory/store';
-import type { LLMProvider } from '../llm/types';
+import type { LLMProvider, StreamEvent } from '../llm/types';
+import { ToolRunner } from '../tools';
+import { createWebSearchTool } from '../tools/web-search';
+import type { SearchProvider } from '../tools/web-search/tavily';
 import { MemorySessionStore } from '../stores/memory';
 import { BotCore } from './bot';
 import { builtinCommands, CommandRegistry, parseCommand } from './commands';
@@ -14,32 +17,85 @@ import { SessionManager } from './session';
 
 const silentLog = pino({ level: 'silent' });
 
-function makeDeps(memory?: UserMemoryStore) {
-  const calls: { model: string; messages: { role: string; content: unknown }[] }[] = [];
-  const providerState: { fail: boolean; failStatus?: number } = { fail: false };
-  const throwIfFail = (): void => {
+const text = (t: string): StreamEvent => ({ type: 'text', text: t });
+const finish = (reason = 'stop'): StreamEvent => ({ type: 'finish', reason });
+const toolCallEvent = (id: string, args: string): StreamEvent => ({
+  type: 'tool_call',
+  call: { id, name: 'web_search', arguments: args },
+});
+const defaultEvents = (): StreamEvent[] => [text('Hel'), text('lo!'), finish('stop')];
+
+function stubToolRunner(result: string, onExec?: () => void): ToolRunner {
+  return new ToolRunner([
+    {
+      name: 'web_search',
+      description: 'fake search',
+      parameters: { type: 'object', properties: { query: { type: 'string' } } },
+      async exec() {
+        onExec?.();
+        return result;
+      },
+    },
+  ]);
+}
+
+interface CapturedMessage {
+  role: string;
+  content: unknown;
+  tool_calls?: unknown;
+  tool_call_id?: string;
+}
+
+function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner) {
+  const calls: { model: string; hasTools: boolean; messages: CapturedMessage[] }[] = [];
+  const providerState: {
+    fail: boolean;
+    failStatus?: number;
+    failStatusOnce?: number;
+    failOnCall?: { n: number; status: number };
+    script: StreamEvent[][];
+  } = { fail: false, script: [] };
+  const throwIfFail = (callIndex: number): void => {
     if (providerState.fail) throw new Error('boom');
     if (providerState.failStatus !== undefined) {
       throw Object.assign(new Error('api rejected'), { status: providerState.failStatus });
     }
+    if (providerState.failStatusOnce !== undefined) {
+      const status = providerState.failStatusOnce;
+      providerState.failStatusOnce = undefined;
+      throw Object.assign(new Error('api rejected'), { status });
+    }
+    if (providerState.failOnCall && callIndex >= providerState.failOnCall.n) {
+      throw Object.assign(new Error('api rejected'), { status: providerState.failOnCall.status });
+    }
   };
+  const capture = (
+    messages: readonly { role: string; content: unknown; tool_calls?: unknown; tool_call_id?: string }[],
+  ): CapturedMessage[] =>
+    messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      tool_calls: m.tool_calls,
+      tool_call_id: m.tool_call_id,
+    }));
   const provider: LLMProvider = {
     id: 'fake',
     async *streamChat(messages, opts) {
-      calls.push({
+      const callIndex = calls.push({
         model: opts.model,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        hasTools: Boolean(opts.tools?.length),
+        messages: capture(messages),
       });
-      throwIfFail();
-      yield 'Hel';
-      yield 'lo!';
+      throwIfFail(callIndex);
+      const events =
+        providerState.script.length > 0
+          ? (providerState.script.shift() as StreamEvent[])
+          : defaultEvents();
+      for (const evt of events) yield evt;
     },
     async chat(messages, opts) {
-      calls.push({
-        model: opts.model,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      });
-      throwIfFail();
+      const callIndex = calls.push({ model: opts.model, hasTools: false, messages: capture(messages) });
+      throwIfFail(callIndex);
       return 'Hello!';
     },
   };
@@ -49,6 +105,7 @@ function makeDeps(memory?: UserMemoryStore) {
     [
       { alias: 'grok', provider: 'xai', model: 'grok-a' },
       { alias: 'ds-chat', provider: 'xai', model: 'ds-b' },
+      { alias: 'plain', provider: 'xai', model: 'plain-m', supportsTools: false },
     ],
     'grok',
   );
@@ -60,13 +117,24 @@ function makeDeps(memory?: UserMemoryStore) {
     personaName: 'Moss',
     log: silentLog,
     memory,
+    tools,
   });
   return {
     bot,
+    registry,
     sessions,
     calls,
     setFail: (v: boolean) => (providerState.fail = v),
     setFailWithStatus: (status: number) => (providerState.failStatus = status),
+    setFailWithStatusOnce: (status: number) => (providerState.failStatusOnce = status),
+    setFailOnCall: (n: number, status: number) => (providerState.failOnCall = { n, status }),
+    clearFail: () => {
+      providerState.fail = false;
+      providerState.failStatus = undefined;
+      providerState.failStatusOnce = undefined;
+      providerState.failOnCall = undefined;
+    },
+    setScript: (script: StreamEvent[][]) => (providerState.script = script),
   };
 }
 
@@ -492,5 +560,157 @@ describe('vision 回复取图', () => {
     await bot.handle(fakeMsg('你好').msg);
     const sent = calls[0]?.messages.at(-1)?.content;
     expect(sent).toBe('你好'); // 纯文本形态
+  });
+});
+
+describe('工具调用循环', () => {
+  it('多轮循环：工具结果回传后第二轮作答，历史只留最终一对', async () => {
+    const { bot, calls, sessions, setScript } = makeDeps(
+      undefined,
+      stubToolRunner('搜索结果：今天晴，12~20°C'),
+    );
+    setScript([[toolCallEvent('call_1', '{"query":"北京天气"}'), finish('tool_calls')]]);
+    const { msg, state } = fakeMsg('今天天气怎么样');
+    await bot.handle(msg);
+
+    expect(calls).toHaveLength(2); // 第一轮 tool_call + 第二轮作答
+    expect(calls[0]?.hasTools).toBe(true);
+    expect(calls[1]?.hasTools).toBe(true);
+    const second = calls[1]?.messages ?? [];
+    expect(second.at(-2)).toMatchObject({
+      role: 'assistant',
+      tool_calls: [{ id: 'call_1', name: 'web_search', arguments: '{"query":"北京天气"}' }],
+    });
+    expect(second.at(-1)).toEqual({
+      role: 'tool',
+      tool_call_id: 'call_1',
+      content: '搜索结果：今天晴，12~20°C',
+    });
+    expect(state.finished).toBe(true);
+    expect(state.appended).toEqual(['Hel', 'lo!']); // 第二轮文本照常流式
+    const session = await sessions.get('telegram', '1');
+    expect(session.history).toEqual([
+      { role: 'user', content: '今天天气怎么样' },
+      { role: 'assistant', content: 'Hello!' }, // 工具中间轮不进历史
+    ]);
+  });
+
+  it('3 轮上限：第 4 次请求起不带 tools 强制作答', async () => {
+    const { bot, calls, sessions, setScript } = makeDeps(undefined, stubToolRunner('r'));
+    const endless = (): StreamEvent[] => [toolCallEvent('c', '{"query":"q"}'), finish('tool_calls')];
+    setScript([endless(), endless(), endless()]);
+    const { msg, state } = fakeMsg('搜');
+    await bot.handle(msg);
+    expect(calls).toHaveLength(4); // 3 轮带 tools + 收尾 1 轮不带
+    expect(calls.slice(0, 3).every((c) => c.hasTools)).toBe(true);
+    expect(calls[3]?.hasTools).toBe(false);
+    expect(state.finished).toBe(true);
+    expect((await sessions.get('telegram', '1')).history).toHaveLength(2);
+  });
+
+  it('finish=tool_calls 但无 calls 时视为结束，不再执行工具', async () => {
+    const { bot, calls, setScript } = makeDeps(undefined, stubToolRunner('r'));
+    setScript([[finish('tool_calls')], [text('direct'), finish('stop')]]);
+    const { msg, state } = fakeMsg('hi');
+    await bot.handle(msg);
+    expect(calls).toHaveLength(1); // 第一轮即结束，防死循环
+    expect(state.finished).toBe(true);
+  });
+
+  it('首轮带工具被 4xx 拒：markNoTools 并透明降级重试一次', async () => {
+    const { bot, registry, calls, setFailWithStatusOnce, clearFail } = makeDeps(
+      undefined,
+      stubToolRunner('r'),
+    );
+    setFailWithStatusOnce(400);
+    const { msg, state } = fakeMsg('hi');
+    await bot.handle(msg);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.hasTools).toBe(true);
+    expect(calls[1]?.hasTools).toBe(false); // 降级重试不带 tools
+    expect(state.finished).toBe(true);
+    expect(registry.isToolsBlocked('grok-a')).toBe(true);
+
+    // 标记生效：后续请求从一开始就不带 tools
+    clearFail();
+    await bot.handle(fakeMsg('hi2').msg);
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.hasTools).toBe(false);
+  });
+
+  it('后续轮 4xx 不降级，直接 abort', async () => {
+    const { bot, calls, setScript, setFailOnCall } = makeDeps(undefined, stubToolRunner('r'));
+    setScript([[toolCallEvent('c1', '{"query":"q"}'), finish('tool_calls')]]);
+    setFailOnCall(2, 400); // 第 2 次请求（工具轮之后）才失败
+    const { msg, state } = fakeMsg('hi');
+    await bot.handle(msg);
+    expect(calls).toHaveLength(2);
+    expect(state.finished).toBe(false);
+    expect(state.aborted?.message).toContain('api rejected');
+  });
+
+  it('静态 supportsTools:false 的模型不带 tools', async () => {
+    const { bot, calls } = makeDeps(undefined, stubToolRunner('r'));
+    await bot.handle(fakeMsg('/model plain').msg);
+    await bot.handle(fakeMsg('hi').msg);
+    expect(calls.at(-1)?.hasTools).toBe(false);
+  });
+
+  it('未注入 ToolRunner 时所有请求不带 tools', async () => {
+    const { bot, calls } = makeDeps();
+    await bot.handle(fakeMsg('hi').msg);
+    expect(calls[0]?.hasTools).toBe(false);
+  });
+
+  it('带图轮不挂工具', async () => {
+    const { bot, calls } = makeDeps(undefined, stubToolRunner('r'));
+    const { msg } = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: ['data:image/jpeg;base64,aGVsbG8='],
+    });
+    await bot.handle(msg);
+    expect(calls[0]?.hasTools).toBe(false);
+  });
+
+  it('冷却贯穿 bot：同一会话第二次搜索被冷却拦截', async () => {
+    const searchCalls: string[] = [];
+    const provider: SearchProvider = {
+      id: 'fake',
+      async search(query) {
+        searchCalls.push(query);
+        return [{ title: 'T', url: 'https://u', content: 'C' }];
+      },
+    };
+    const t = 0;
+    const tools = new ToolRunner([
+      createWebSearchTool({ provider, maxResults: 3, cooldownMinutes: 5, now: () => t }),
+    ]);
+    const { bot, calls, setScript } = makeDeps(undefined, tools);
+    setScript([
+      [toolCallEvent('c1', '{"query":"q1"}'), finish('tool_calls')],
+      [toolCallEvent('c2', '{"query":"q2"}'), finish('tool_calls')],
+    ]);
+    await bot.handle(fakeMsg('搜一下').msg);
+    expect(searchCalls).toEqual(['q1']); // 第二次被冷却拦截，搜索源只被调一次
+    const cooldownMsg = calls[2]?.messages.at(-1) as { role: string; content: string };
+    expect(cooldownMsg?.role).toBe('tool');
+    expect(cooldownMsg?.content).toContain('冷却');
+    expect(calls).toHaveLength(3); // 两轮工具 + 收尾作答
+  });
+
+  it('带工具的多轮结束后 extractMemory 照常发生', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moss-mem-tool-'));
+    try {
+      const memory = new UserMemoryStore(dir);
+      const { bot, calls, setScript } = makeDeps(memory, stubToolRunner('搜索结果'));
+      setScript([[toolCallEvent('c1', '{"query":"q"}'), finish('tool_calls')]]);
+      await bot.handle(fakeMsg('搜一下').msg);
+      await vi.waitFor(async () => {
+        expect(await memory.load('telegram:u1')).toBe('Hello!');
+      });
+      expect(calls).toHaveLength(3); // 2 次聊天 + 1 次提取（chat，无 tools）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

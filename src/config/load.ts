@@ -86,6 +86,23 @@ export function resolveConfig(
     providers[id] = { baseUrl: p.baseUrl, apiKey, apiKeyEnv: p.apiKeyEnv };
   }
 
+  const ws = cfg.tools.webSearch;
+  const wsProviders: ResolvedConfig['tools']['webSearch']['providers'] = {};
+  for (const [id, p] of Object.entries(ws.providers)) {
+    wsProviders[id] = { apiKeyEnv: p.apiKeyEnv, apiKey: options.env[p.apiKeyEnv], baseUrl: p.baseUrl };
+  }
+  if (ws.enabled) {
+    const selected = wsProviders[ws.provider];
+    if (!selected) {
+      throw new ConfigError(
+        `tools.webSearch.provider "${ws.provider}" 未在 tools.webSearch.providers 中定义（已定义: ${Object.keys(wsProviders).join(', ') || '无'}）`,
+      );
+    }
+    if (!selected.apiKey) {
+      throw new ConfigError(`tools.webSearch 已启用但缺少 API key：请设置环境变量 ${selected.apiKeyEnv}`);
+    }
+  }
+
   const botToken = options.env[cfg.telegram.botTokenEnv];
   if (cfg.telegram.enabled && !botToken) {
     throw new ConfigError(`telegram.enabled=true 但环境变量 ${cfg.telegram.botTokenEnv} 为空`);
@@ -113,6 +130,15 @@ export function resolveConfig(
       streaming: cfg.feishu.streaming,
     },
     memory: cfg.memory,
+    tools: {
+      webSearch: {
+        enabled: ws.enabled,
+        provider: ws.provider,
+        maxResults: ws.maxResults,
+        cooldownMinutes: ws.cooldownMinutes,
+        providers: wsProviders,
+      },
+    },
   };
 }
 

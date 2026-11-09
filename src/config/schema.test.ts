@@ -137,3 +137,77 @@ describe('resolveConfig 交叉校验', () => {
     ).toThrow(/F_SECRET/);
   });
 });
+
+describe('tools 段', () => {
+  it('无 tools 段时 webSearch 全默认且关闭', () => {
+    const cfg = resolveConfig(base, opts);
+    expect(cfg.tools.webSearch.enabled).toBe(false);
+    expect(cfg.tools.webSearch.provider).toBe('tavily');
+    expect(cfg.tools.webSearch.maxResults).toBe(5);
+    expect(cfg.tools.webSearch.cooldownMinutes).toBe(5);
+    expect(cfg.tools.webSearch.providers).toEqual({});
+  });
+
+  it('只写 enabled 与 provider 定义时其余字段填默认，env key 解析', () => {
+    const cfg = resolveConfig(
+      {
+        ...base,
+        tools: {
+          webSearch: {
+            enabled: true,
+            provider: 'tavily',
+            providers: { tavily: { apiKeyEnv: 'TAVILY_API_KEY' } },
+          },
+        },
+      },
+      { configPath: 'config.yaml', env: { TAVILY_API_KEY: 'tvly-1' } },
+    );
+    expect(cfg.tools.webSearch.enabled).toBe(true);
+    expect(cfg.tools.webSearch.maxResults).toBe(5);
+    expect(cfg.tools.webSearch.providers.tavily?.apiKey).toBe('tvly-1');
+    expect(cfg.tools.webSearch.providers.tavily?.baseUrl).toBeUndefined();
+  });
+
+  it('enabled=true 但 provider 未定义时报错', () => {
+    expect(() =>
+      resolveConfig(
+        { ...base, tools: { webSearch: { enabled: true, providers: {} } } },
+        opts,
+      ),
+    ).toThrow(/未在 tools\.webSearch\.providers 中定义/);
+  });
+
+  it('enabled=true 但 env key 缺失时报错并指明环境变量名', () => {
+    expect(() =>
+      resolveConfig(
+        {
+          ...base,
+          tools: {
+            webSearch: {
+              enabled: true,
+              providers: { tavily: { apiKeyEnv: 'TAVILY_API_KEY' } },
+            },
+          },
+        },
+        opts,
+      ),
+    ).toThrow(/TAVILY_API_KEY/);
+  });
+
+  it('supportsTools 透传进 resolved entries', () => {
+    const cfg = resolveConfig(
+      {
+        models: {
+          entries: [
+            { alias: 'a', provider: 'xai', model: 'm1' },
+            { alias: 'b', provider: 'xai', model: 'm2', supportsTools: false },
+          ],
+        },
+        providers: base.providers,
+      },
+      opts,
+    );
+    expect(cfg.models.entries[0]?.supportsTools).toBeUndefined();
+    expect(cfg.models.entries[1]?.supportsTools).toBe(false);
+  });
+});

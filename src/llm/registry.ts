@@ -1,12 +1,14 @@
 import { ConfigError } from '../config/load';
 import type { ModelEntry, ResolvedConfig } from '../config/schema';
 import { OpenAICompatProvider } from './openai-compat';
-import type { ChatMessage, LLMProvider } from './types';
+import type { ChatMessage, FunctionToolDef, LLMProvider, StreamEvent } from './types';
 import type { Dispatcher } from 'undici';
 
 export class LlmRegistry {
   /** 运行时探测：发图被 4xx 拒绝的模型记录在此，后续直接提示而非重试浪费调用 */
   private readonly noVisionModels = new Set<string>();
+  /** 运行时探测：带 tools 被 4xx 拒绝的模型记录在此，后续请求不再挂工具 */
+  private readonly noToolsModels = new Set<string>();
 
   constructor(
     private readonly providers: ReadonlyMap<string, LLMProvider>,
@@ -21,6 +23,17 @@ export class LlmRegistry {
 
   isVisionBlocked(model: string): boolean {
     return this.noVisionModels.has(model);
+  }
+
+  markNoTools(model: string): void {
+    this.noToolsModels.add(model);
+  }
+
+  /** 静态配置 supportsTools===false 或运行时被 4xx 标记的模型都不挂工具 */
+  isToolsBlocked(model: string): boolean {
+    if (this.noToolsModels.has(model)) return true;
+    const entry = this.entries.find((e) => e.model === model);
+    return entry?.supportsTools === false;
   }
 
   listAliases(): string[] {
@@ -62,12 +75,16 @@ export class LlmRegistry {
   streamChat(
     alias: string | undefined,
     messages: readonly ChatMessage[],
-    opts?: { signal?: AbortSignal },
-  ): { entry: ModelEntry; stream: AsyncIterable<string> } {
+    opts?: { signal?: AbortSignal; tools?: readonly FunctionToolDef[] },
+  ): { entry: ModelEntry; stream: AsyncIterable<StreamEvent> } {
     const { entry, provider } = this.resolve(alias);
     return {
       entry,
-      stream: provider.streamChat(messages, { model: entry.model, signal: opts?.signal }),
+      stream: provider.streamChat(messages, {
+        model: entry.model,
+        signal: opts?.signal,
+        tools: opts?.tools,
+      }),
     };
   }
 }

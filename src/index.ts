@@ -9,6 +9,7 @@ import { SessionManager } from './core/session';
 import { buildRegistry } from './llm/registry';
 import { createLogger } from './log';
 import { UserMemoryStore } from './memory/store';
+import { createToolRunner } from './tools';
 import { FileSessionStore } from './stores/file';
 import { MemorySessionStore } from './stores/memory';
 import { VERSION } from './version';
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
   const proxyDispatcher = getProxyDispatcher();
 
   const registry = buildRegistry(config, proxyDispatcher);
+  const tools = createToolRunner(config.tools, proxyDispatcher);
   const store =
     config.session.store === 'file'
       ? new FileSessionStore(join('data', 'sessions'), log)
@@ -39,6 +41,7 @@ async function main(): Promise<void> {
     personaName: config.persona.name,
     log,
     memory,
+    tools,
   });
 
   const adapters: PlatformAdapter[] = [];

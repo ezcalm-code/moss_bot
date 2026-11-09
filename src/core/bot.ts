@@ -1,11 +1,15 @@
 import type { IncomingMessage } from '../adapters/types';
 import type { Logger } from '../log';
 import type { LlmRegistry } from '../llm/registry';
-import type { MessageContent } from '../llm/types';
+import type { ChatMessage, MessageContent, ToolCall } from '../llm/types';
 import { buildExtractPrompt, memoryKeyOf, type UserMemoryStore } from '../memory/store';
+import { toFunctionTool, type ToolRunner } from '../tools';
 import { texts } from '../text';
 import { builtinCommands, CommandRegistry, parseCommand, type CommandDeps } from './commands';
 import type { SessionManager } from './session';
+
+/** 单次用户消息内允许的最多工具执行轮数；第 4 次请求起不带 tools 强制纯文本作答 */
+const MAX_TOOL_ROUNDS = 3;
 
 export interface BotCoreOptions {
   registry: LlmRegistry;
@@ -15,6 +19,8 @@ export interface BotCoreOptions {
   log: Logger;
   /** 跨会话用户记忆；缺省 = 记忆功能关闭 */
   memory?: UserMemoryStore;
+  /** 工具执行器；缺省 = 无工具（请求不带 tools） */
+  tools?: ToolRunner;
 }
 
 /** 平台无关的消息管道：命令路由 → 群聊过滤 → 会话装载 → LLM 流式回复 → 历史回写 */
@@ -24,11 +30,13 @@ export class BotCore {
   private readonly log: Logger;
   private readonly systemPrompt: string;
   private readonly memory: UserMemoryStore | undefined;
+  private readonly tools: ToolRunner | undefined;
 
   constructor(opts: BotCoreOptions) {
     this.log = opts.log;
     this.systemPrompt = opts.systemPrompt;
     this.memory = opts.memory;
+    this.tools = opts.tools;
     this.deps = {
       registry: opts.registry,
       sessions: opts.sessions,
@@ -92,16 +100,14 @@ export class BotCore {
   private async chat(msg: IncomingMessage, text: string): Promise<void> {
     const { registry, sessions } = this.deps;
     const session = await sessions.get(msg.platform, msg.chatId);
+    const entry = registry.entryFor(session.modelAlias);
 
     // 无条件探测图片：本条带图、或回复了图片消息（图在被回复消息里）都由此取到；
     // 无图时实现返回空数组，代价极小
     const dataUrls = await msg.getAttachmentDataUrls();
-    if (dataUrls.length > 0) {
-      const model = registry.entryFor(session.modelAlias).model;
-      if (registry.isVisionBlocked(model)) {
-        await msg.reply(texts.noVision(registry.listAliases()));
-        return;
-      }
+    if (dataUrls.length > 0 && registry.isVisionBlocked(entry.model)) {
+      await msg.reply(texts.noVision(registry.listAliases()));
+      return;
     }
 
     // 群聊共享一份历史，拼上说话人名字区分角色
@@ -121,13 +127,44 @@ export class BotCore {
       ...session.history,
       { role: 'user' as const, content: requestContent },
     ];
-    const { entry, stream } = registry.streamChat(session.modelAlias, messages);
+
+    // 带图轮不挂工具：图片与工具同被 4xx 拒时无法归因；看图场景搜索价值也低
+    const toolDefs =
+      this.tools && !registry.isToolsBlocked(entry.model) && dataUrls.length === 0
+        ? this.tools.specs().map(toFunctionTool)
+        : undefined;
+
     const handle = await msg.startStreamReply();
     let full = '';
+    let toolRound = 0;
+    let pending = messages;
+    const consumeRound = async (tools: typeof toolDefs) => {
+      const { stream } = registry.streamChat(session.modelAlias, pending, { tools });
+      let finish = 'stop';
+      const calls: ToolCall[] = [];
+      let roundText = '';
+      for await (const evt of stream) {
+        if (evt.type === 'text') {
+          full += evt.text;
+          roundText += evt.text;
+          await handle.append(evt.text);
+        } else if (evt.type === 'tool_call') {
+          calls.push(evt.call);
+        } else {
+          finish = evt.reason;
+        }
+      }
+      return { finish, calls, roundText };
+    };
     try {
-      for await (const delta of stream) {
-        full += delta;
-        await handle.append(delta);
+      for (;;) {
+        const { finish, calls, roundText } = await consumeRound(
+          toolRound < MAX_TOOL_ROUNDS ? toolDefs : undefined,
+        );
+        if (finish !== 'tool_calls' || calls.length === 0) break;
+        const toolMsgs = await this.execToolCalls(calls, msg);
+        pending = [...pending, { role: 'assistant', content: roundText, tool_calls: calls }, ...toolMsgs];
+        toolRound++;
       }
       await handle.finish();
     } catch (err) {
@@ -138,12 +175,47 @@ export class BotCore {
         await handle.abort(new Error(texts.noVision(registry.listAliases())));
         return;
       }
-      await handle.abort(err instanceof Error ? err : new Error(String(err)));
+      // 首轮带工具被 4xx 拒：该模型/网关不支持 tools，记入缓存并透明降级重试一次
+      let finalErr: unknown = err;
+      if (toolDefs && toolRound === 0 && full === '' && isClientApiRejection(err)) {
+        registry.markNoTools(entry.model);
+        this.log.info({ model: entry.model }, '模型不支持工具调用，已标记并以无工具重试');
+        try {
+          await consumeRound(undefined);
+          await handle.finish();
+          await sessions.appendTurn(session, userMsg, { role: 'assistant', content: full });
+          void this.extractMemory(msg, text, full, session.modelAlias);
+          return;
+        } catch (retryErr) {
+          finalErr = retryErr;
+        }
+      }
+      await handle.abort(finalErr instanceof Error ? finalErr : new Error(String(finalErr)));
       return;
     }
     await sessions.appendTurn(session, userMsg, { role: 'assistant', content: full });
     // 记忆提取在回复完成后后台进行，不阻塞、失败静默
     void this.extractMemory(msg, text, full, session.modelAlias);
+  }
+
+  /** 执行一轮全部工具调用并组装 role=tool 回传消息 */
+  private async execToolCalls(
+    calls: readonly ToolCall[],
+    msg: IncomingMessage,
+  ): Promise<ChatMessage[]> {
+    if (!this.tools) return [];
+    const out: ChatMessage[] = [];
+    for (const call of calls) {
+      const result = await this.tools.exec(call.name, call.arguments, {
+        platform: msg.platform,
+        chatId: msg.chatId,
+        senderId: msg.senderId,
+        isGroup: msg.isGroup,
+        log: this.log,
+      });
+      out.push({ role: 'tool', tool_call_id: call.id, content: result });
+    }
+    return out;
   }
 
   private async systemWithMemory(msg: IncomingMessage): Promise<string> {

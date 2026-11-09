@@ -11,6 +11,11 @@ const providerSchema = z.object({
   apiKey: z.string().optional(),
 });
 
+const webSearchProviderSchema = z.object({
+  apiKeyEnv: z.string().min(1),
+  baseUrl: z.url().optional(),
+});
+
 export const configSchema = z.object({
   log: z.object({ level: z.enum(['debug', 'info', 'warn', 'error']) }).prefault({ level: 'info' }),
   persona: z
@@ -28,6 +33,7 @@ export const configSchema = z.object({
           alias: z.string().min(1),
           provider: z.string().min(1),
           model: z.string().min(1),
+          supportsTools: z.boolean().optional(),
         }),
       )
       .min(1),
@@ -61,6 +67,27 @@ export const configSchema = z.object({
       streaming: true,
     }),
   memory: z.object({ enabled: z.boolean() }).prefault({ enabled: true }),
+  tools: z
+    .object({
+      webSearch: z
+        .object({
+          enabled: z.boolean().default(false),
+          provider: z.string().min(1).default('tavily'),
+          maxResults: z.number().int().min(1).max(10).default(5),
+          cooldownMinutes: z.number().min(0).default(5),
+          providers: z.record(z.string().min(1), webSearchProviderSchema).default({}),
+        })
+        .prefault({
+          enabled: false,
+          provider: 'tavily',
+          maxResults: 5,
+          cooldownMinutes: 5,
+          providers: {},
+        }),
+    })
+    .prefault({
+      webSearch: { enabled: false, provider: 'tavily', maxResults: 5, cooldownMinutes: 5, providers: {} },
+    }),
 });
 
 export type YamlConfig = z.infer<typeof configSchema>;
@@ -69,6 +96,8 @@ export interface ModelEntry {
   alias: string;
   provider: string;
   model: string;
+  /** 缺省视为支持工具调用；false = 不挂工具（网关不透传 / 模型不支持） */
+  supportsTools?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -89,4 +118,16 @@ export interface ResolvedConfig {
     streaming: boolean;
   };
   memory: { enabled: boolean };
+  tools: {
+    webSearch: {
+      enabled: boolean;
+      provider: string;
+      maxResults: number;
+      cooldownMinutes: number;
+      providers: Record<
+        string,
+        { apiKeyEnv: string; apiKey: string | undefined; baseUrl: string | undefined }
+      >;
+    };
+  };
 }

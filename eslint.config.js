@@ -10,4 +10,18 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // scripts/ 下的独立 Node 脚本（探测/验证工具）直接用运行时全局，不引类型系统
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        fetch: 'readonly',
+        AbortSignal: 'readonly',
+        TextDecoder: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
 );

@@ -17,6 +17,7 @@ models:
     - alias: ds-chat
       provider: deepseek
       model: deepseek-chat
+    # supportsTools: false          # 网关不透传 function calling / 模型不支持工具时设为 false
 
 providers:
   xai:
@@ -35,6 +36,16 @@ session:
 
 memory:
   enabled: true # 跨会话用户记忆（画像存 data/memory/，/forget 可清除）
+
+tools:
+  webSearch:
+    enabled: false # 打开后模型可自主调用 web_search 获取实时信息
+    provider: tavily # 搜索源（免费档 1000 次/月，注册只需邮箱）
+    maxResults: 5
+    cooldownMinutes: 5 # 同一会话搜索冷却，防止烧穿免费额度
+    providers:
+      tavily:
+        apiKeyEnv: TAVILY_API_KEY
 
 telegram:
   enabled: false

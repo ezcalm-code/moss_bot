@@ -31,6 +31,8 @@ moss-bots 配置由三层合并：`config.yaml`（主配置，不入库）+ `.en
 
 `alias`：`/model` 命令用的短名；`provider`：对应 `providers` 的 key；`model`：传给 API 的 model 参数。
 
+entry 还支持可选 `supportsTools: false`：该模型不参与工具调用（function calling）。缺省视为支持；网关不透传 tools 或模型不支持时，运行时也会自动探测标记（首次 4xx 后该模型不再挂工具）。
+
 ### providers
 
 Record 类型，key 为 provider id。
@@ -73,11 +75,24 @@ Record 类型，key 为 provider id。
 
 记忆机制：每轮回复后后台提取值得长期保留的事实（身份、偏好、进行中的事），敏感信息（密码/证件/住址）即使提到也不记录。画像为 Markdown 文本，可直接手改。
 
+### tools
+
+| 字段                          | 类型    | 默认     | 说明                                     |
+| ----------------------------- | ------- | -------- | ---------------------------------------- |
+| webSearch.enabled             | bool    | `false`  | 打开后模型可自主调用 web_search 联网搜索 |
+| webSearch.provider            | string  | `tavily` | 搜索源，对应 webSearch.providers 的 key  |
+| webSearch.maxResults          | int 1-10 | `5`      | 单次搜索返回条数                         |
+| webSearch.cooldownMinutes     | number  | `5`      | 同一会话（群/私聊各自）搜索冷却          |
+| webSearch.providers.<id>      | record  | 无       | 各搜索源配置：apiKeyEnv（必填）、baseUrl（可选，自托管源用） |
+
+工具机制：请求时把工具定义（OpenAI function tools 格式）随消息发给模型，模型判断需要实时信息时返回 `web_search` 调用，bot 执行搜索后把结果回传，模型组织成最终回答——触发与否完全由模型判断。同一会话 5 分钟内只放行一次搜索（冷却期内模型会收到说明并向用户解释）；搜索失败或冷却都不会中断对话。当前仅支持 Tavily（免费档 1000 次/月，[tavily.com](https://tavily.com) 邮箱注册）；带图消息的轮次不挂工具。
+
 ## 启动期校验规则
 
 - `persona.systemPrompt` 与 `persona.systemPromptFile` 只能配置其一
 - `models.entries` 的 alias 不可重复；`models.default`（若设置）必须存在于 entries；entry 的 provider 必须存在于 `providers`
 - `telegram.enabled=true` 时对应 token 环境变量必须非空，否则启动报错（feishu 同理）
+- `tools.webSearch.enabled=true` 时 `provider` 必须在 `providers` 中定义、对应 API key 环境变量必须非空
 
 ## 环境变量
 
