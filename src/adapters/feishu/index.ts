@@ -213,10 +213,10 @@ export class FeishuAdapter implements PlatformAdapter {
       path: { message_id: messageId, file_key: imageKey },
       params: { type: 'image' },
     });
-    // SDK 返回 NodeJS.ReadableStream：收集为 Buffer
+    // SDK 返回包装对象：getReadableStream() 才是真正的流
+    const readable = res.getReadableStream();
     const chunks: Buffer[] = [];
-    const stream = res as unknown as NodeJS.ReadableStream;
-    for await (const chunk of stream) {
+    for await (const chunk of readable) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
     }
     return Buffer.concat(chunks);
