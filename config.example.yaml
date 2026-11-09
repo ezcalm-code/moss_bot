@@ -39,10 +39,10 @@ memory:
 
 tools:
   webSearch:
-    enabled: false # 打开后模型可自主调用 web_search 获取实时信息
-    provider: tavily # 搜索源（免费档 1000 次/月，注册只需邮箱）
+    enabled: false # 打开后模型可自主调用 web_search（联网搜索）与 read_url（读用户发的链接）
+    provider: tavily # 搜索/抓取源（免费档 1000 credits/月，注册只需邮箱）
     maxResults: 5
-    cooldownMinutes: 5 # 同一会话搜索冷却，防止烧穿免费额度
+    cooldownMinutes: 5 # web_search 按会话冷却，防止烧穿免费额度；read_url 不设冷却
     providers:
       tavily:
         apiKeyEnv: TAVILY_API_KEY

@@ -1,4 +1,5 @@
 import type { Dispatcher } from 'undici';
+import type { PageExtractor } from '../types';
 
 export interface SearchResult {
   title: string;
@@ -29,24 +30,11 @@ export function createTavilyProvider(opts: TavilyOptions): SearchProvider {
   return {
     id: 'tavily',
     async search(query, { maxResults, signal }) {
-      // dispatcher 用整对象 as RequestInit：npm undici 与 Node 内置 undici-types 的 Dispatcher
-      // 类型不互通，字段级合并（RequestInit & {dispatcher}）会被判不可比（与 telegram 适配器同款处理）
-      const init = {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ api_key: opts.apiKey, query, max_results: maxResults }),
-        signal,
-        dispatcher: opts.dispatcher,
-      } as RequestInit;
-      const doFetch = opts.fetch ?? fetch;
-      const res = await doFetch(`${base}/search`, init);
-      const text = await res.text();
-      if (!res.ok) {
-        throw new Error(`Tavily HTTP ${res.status}: ${text.slice(0, 200)}`);
-      }
-      const data = JSON.parse(text) as {
-        results?: { title?: string; url?: string; content?: string; published_date?: string }[];
-      };
+      const data = await tavilyPost(opts, base, '/search', {
+        api_key: opts.apiKey,
+        query,
+        max_results: maxResults,
+      }, signal);
       return (data.results ?? []).map((r) => ({
         title: r.title ?? '',
         url: r.url ?? '',
@@ -55,4 +43,51 @@ export function createTavilyProvider(opts: TavilyOptions): SearchProvider {
       }));
     },
   };
+}
+
+/** read_url 工具的后端：Tavily Extract 抓取网页正文（免自建 HTML 解析，与搜索共用 key） */
+export function createTavilyExtractor(opts: TavilyOptions): PageExtractor {
+  const base = opts.baseUrl ?? 'https://api.tavily.com';
+  return {
+    id: 'tavily-extract',
+    async extract(url) {
+      const data = await tavilyPost(opts, base, '/extract', {
+        api_key: opts.apiKey,
+        urls: [url],
+      });
+      const item = data.results?.[0];
+      const content = item?.raw_content?.trim();
+      if (!content) {
+        const failed = data.failed_results?.[0]?.error ?? '页面无可提取的正文';
+        throw new Error(failed.slice(0, 200));
+      }
+      return content;
+    },
+  };
+}
+
+async function tavilyPost(
+  opts: TavilyOptions,
+  base: string,
+  path: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<{
+  results?: { title?: string; url?: string; content?: string; raw_content?: string; published_date?: string }[];
+  failed_results?: { url?: string; error?: string }[];
+}> {
+  const init = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+    dispatcher: opts.dispatcher,
+  } as RequestInit;
+  const doFetch = opts.fetch ?? fetch;
+  const res = await doFetch(`${base}${path}`, init);
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Tavily HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return JSON.parse(text);
 }

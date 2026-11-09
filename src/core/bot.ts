@@ -11,6 +11,9 @@ import type { SessionManager } from './session';
 /** 单次用户消息内允许的最多工具执行轮数；第 4 次请求起不带 tools 强制纯文本作答 */
 const MAX_TOOL_ROUNDS = 3;
 
+/** 同会话排队上限：达到后丢弃新消息（群聊刷屏防护）；私聊正常使用到不了 */
+const MAX_PENDING_PER_CHAT = 5;
+
 export interface BotCoreOptions {
   registry: LlmRegistry;
   sessions: SessionManager;
@@ -31,6 +34,8 @@ export class BotCore {
   private readonly systemPrompt: string;
   private readonly memory: UserMemoryStore | undefined;
   private readonly tools: ToolRunner | undefined;
+  private readonly chatQueues = new Map<string, Promise<void>>();
+  private readonly queueDepth = new Map<string, number>();
 
   constructor(opts: BotCoreOptions) {
     this.log = opts.log;
@@ -48,7 +53,31 @@ export class BotCore {
     this.deps.commands = this.commands;
   }
 
+  /** 同会话串行化：飞书事件是异步派发会并发进入，群聊共享历史与流式回复都依赖顺序 */
   async handle(msg: IncomingMessage): Promise<void> {
+    const key = `${msg.platform}:${msg.chatId}`;
+    const depth = this.queueDepth.get(key) ?? 0;
+    if (depth >= MAX_PENDING_PER_CHAT) {
+      this.log.info({ platform: msg.platform, chatId: msg.chatId }, '会话排队已满，丢弃新消息');
+      return;
+    }
+    this.queueDepth.set(key, depth + 1);
+    const prev = this.chatQueues.get(key) ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(() => this.process(msg));
+    this.chatQueues.set(key, next);
+    void next.finally(() => {
+      const remaining = (this.queueDepth.get(key) ?? 1) - 1;
+      if (remaining <= 0) {
+        this.queueDepth.delete(key);
+        if (this.chatQueues.get(key) === next) this.chatQueues.delete(key);
+      } else {
+        this.queueDepth.set(key, remaining);
+      }
+    });
+    return next;
+  }
+
+  private async process(msg: IncomingMessage): Promise<void> {
     try {
       if (!msg.isTargeted) {
         // 群聊里发图无法 @bot（图片消息本身不带文字与 @），这是最常见的静默丢弃点，留痕便于排查

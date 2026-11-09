@@ -2,11 +2,16 @@ import { ConfigError } from '../config/load';
 import type { ResolvedConfig } from '../config/schema';
 import type { Dispatcher } from 'undici';
 import type { FunctionToolDef } from '../llm/types';
-import { createTavilyProvider, type SearchProvider } from './web-search/tavily';
+import { createReadUrlTool } from './read-url';
+import {
+  createTavilyExtractor,
+  createTavilyProvider,
+  type SearchProvider,
+} from './web-search/tavily';
 import { createWebSearchTool } from './web-search';
-import type { ToolContext, ToolSpec } from './types';
+import type { PageExtractor, ToolContext, ToolSpec } from './types';
 
-export type { ToolContext, ToolSpec } from './types';
+export type { ToolContext, ToolSpec, PageExtractor } from './types';
 export type { SearchProvider, SearchResult } from './web-search/tavily';
 
 /** 单次工具结果总长上限（多结果拼接后兜底截断） */
@@ -63,7 +68,7 @@ export class ToolRunner {
   }
 }
 
-/** 已知搜索源实现注册表；SearXNG 等自托管源实现后在此登记 */
+/** 已知搜索/抓取源实现注册表；SearXNG 等自托管源实现后在此登记 */
 export const SEARCH_PROVIDER_FACTORIES: Record<
   string,
   (opts: { apiKey: string; baseUrl?: string; dispatcher?: Dispatcher }) => SearchProvider
@@ -90,11 +95,14 @@ export function createToolRunner(
       `tools.webSearch 已启用但缺少 API key：请设置环境变量 ${p?.apiKeyEnv ?? '(未配置 apiKeyEnv)'}`,
     );
   }
-  const provider = factory({ apiKey: p.apiKey, baseUrl: p.baseUrl, dispatcher: proxyDispatcher });
+  const common = { apiKey: p.apiKey, baseUrl: p.baseUrl, dispatcher: proxyDispatcher };
+  const provider = factory(common);
+  const extractor: PageExtractor = createTavilyExtractor(common);
   const spec = createWebSearchTool({
     provider,
     maxResults: ws.maxResults,
     cooldownMinutes: ws.cooldownMinutes,
   });
-  return new ToolRunner([spec]);
+  const readUrl = createReadUrlTool({ extractor });
+  return new ToolRunner([spec, readUrl]);
 }

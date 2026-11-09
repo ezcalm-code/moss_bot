@@ -32,7 +32,8 @@ export class FeishuStreamReply implements StreamReplyHandle {
   private cardId: string | undefined;
   private cardFailed = false;
   private lastUpdateAt = 0;
-  private sequence = 0;
+  /** 飞书卡片约束：sequence 必须从 1 起严格递增，传 0 报 300317 且后续更新全部失败 */
+  private sequence = 1;
   private finishedOrAborted = false;
 
   constructor(

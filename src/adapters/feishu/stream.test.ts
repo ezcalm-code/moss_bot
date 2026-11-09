@@ -56,7 +56,7 @@ describe('FeishuStreamReply', () => {
     now = 900;
     await reply.append('!');
     expect(state.updates).toHaveLength(1);
-    expect(state.updates[0]?.sequence).toBe(0);
+    expect(state.updates[0]?.sequence).toBe(1); // 飞书要求 sequence 从 1 起，0 触发 300317
     const content = JSON.parse(state.updates[0]?.content ?? '{}') as {
       body: { elements: { content: string }[] };
     };
@@ -78,6 +78,7 @@ describe('FeishuStreamReply', () => {
       body: { elements: { content: string }[] };
     };
     expect(content.body.elements[0]?.content).toBe('abc');
+    expect(last?.sequence).toBe(1); // 定稿是首次更新，sequence 从 1 起
   });
 
   it('卡片创建失败时降级为文本消息', async () => {
@@ -123,7 +124,7 @@ describe('FeishuStreamReply', () => {
     expect(state.texts[0]?.text).toContain('生成中断');
   });
 
-  it('sequence 严格递增（飞书卡片接口约束）', async () => {
+  it('sequence 严格递增且从 1 起（飞书卡片接口约束，300317 回归）', async () => {
     let now = 0;
     const { api, state } = fakeCardApi();
     const reply = new FeishuStreamReply(api, 'oc_1', silentLog, {
@@ -135,8 +136,11 @@ describe('FeishuStreamReply', () => {
     await reply.append('b');
     now += 1000;
     await reply.append('c');
+    now += 1000;
+    await reply.finish();
     const seqs = state.updates.map((u) => u.sequence);
-    expect(seqs).toEqual([0, 1]);
+    expect(seqs).toEqual([1, 2, 3]);
+    expect(seqs.every((s, i) => i === 0 || s === (seqs[i - 1] ?? 0) + 1)).toBe(true);
   });
 });
 

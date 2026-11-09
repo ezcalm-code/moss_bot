@@ -25,3 +25,10 @@ export interface ToolSpec {
   readonly parameters: Record<string, unknown>;
   exec(args: unknown, ctx: ToolContext): Promise<string>;
 }
+
+/** 网页正文提取器：read_url 工具的后端，可插拔（当前仅 Tavily Extract 实现） */
+export interface PageExtractor {
+  readonly id: string;
+  /** 返回页面正文纯文本；失败 throw，由工具层转错误说明 */
+  extract(url: string): Promise<string>;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTavilyProvider } from './tavily';
+import { createTavilyExtractor, createTavilyProvider } from './tavily';
 
 function makeFake(status: number, body: string) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -56,5 +56,39 @@ describe('createTavilyProvider', () => {
     const { fakeFetch } = makeFake(200, '{}');
     const provider = createTavilyProvider({ apiKey: 'k', fetch: fakeFetch });
     expect(await provider.search('q', { maxResults: 5 })).toEqual([]);
+  });
+});
+
+describe('createTavilyExtractor', () => {
+  it('POST 到 /extract 且 body 携带 urls 数组，返回 raw_content', async () => {
+    const { fakeFetch, calls } = makeFake(
+      200,
+      JSON.stringify({ results: [{ url: 'https://a', raw_content: '正文内容' }] }),
+    );
+    const extractor = createTavilyExtractor({ apiKey: 'tvly-k', fetch: fakeFetch });
+    expect(await extractor.extract('https://a')).toBe('正文内容');
+    expect(calls[0]?.url).toBe('https://api.tavily.com/extract');
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      api_key: 'tvly-k',
+      urls: ['https://a'],
+    });
+  });
+
+  it('failed_results 有记录时抛错并携带原因', async () => {
+    const { fakeFetch } = makeFake(
+      200,
+      JSON.stringify({
+        results: [],
+        failed_results: [{ url: 'https://a', error: 'extraction failed for url' }],
+      }),
+    );
+    const extractor = createTavilyExtractor({ apiKey: 'k', fetch: fakeFetch });
+    await expect(extractor.extract('https://a')).rejects.toThrow(/extraction failed/);
+  });
+
+  it('raw_content 为空时抛错', async () => {
+    const { fakeFetch } = makeFake(200, JSON.stringify({ results: [{ url: 'https://a' }] }));
+    const extractor = createTavilyExtractor({ apiKey: 'k', fetch: fakeFetch });
+    await expect(extractor.extract('https://a')).rejects.toThrow(/无可提取/);
   });
 });

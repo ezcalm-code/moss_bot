@@ -85,7 +85,12 @@ Record 类型，key 为 provider id。
 | webSearch.cooldownMinutes     | number  | `5`      | 同一会话（群/私聊各自）搜索冷却          |
 | webSearch.providers.<id>      | record  | 无       | 各搜索源配置：apiKeyEnv（必填）、baseUrl（可选，自托管源用） |
 
-工具机制：请求时把工具定义（OpenAI function tools 格式）随消息发给模型，模型判断需要实时信息时返回 `web_search` 调用，bot 执行搜索后把结果回传，模型组织成最终回答——触发与否完全由模型判断。同一会话 5 分钟内只放行一次搜索（冷却期内模型会收到说明并向用户解释）；搜索失败或冷却都不会中断对话。当前仅支持 Tavily（免费档 1000 次/月，[tavily.com](https://tavily.com) 邮箱注册）；带图消息的轮次不挂工具。
+工具机制：请求时把工具定义（OpenAI function tools 格式）随消息发给模型，模型自主决定是否调用，bot 执行后把结果回传，模型组织成最终回答——触发与否完全由模型判断。当前内置两个工具：
+
+- **web_search**（联网搜索）：时效性问题（新闻、赛果、价格、天气）时搜索；同一会话 5 分钟冷却（群聊私聊各自独立），冷却与失败都不会中断对话。默认 Tavily（免费档 1000 credits/月，[tavily.com](https://tavily.com) 邮箱注册）
+- **read_url**（读链接）：用户粘贴 URL 并希望了解/讨论其内容时抓取网页正文；走 Tavily Extract，与搜索共用同一 key，无冷却
+
+带图消息的轮次不挂工具；模型不支持 tools 时自动降级为普通聊天（可对具体模型设 `models.entries[].supportsTools: false` 静态关闭）。
 
 ## 启动期校验规则
 

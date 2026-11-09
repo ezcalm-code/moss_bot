@@ -19,18 +19,22 @@ const silentLog = pino({ level: 'silent' });
 
 const text = (t: string): StreamEvent => ({ type: 'text', text: t });
 const finish = (reason = 'stop'): StreamEvent => ({ type: 'finish', reason });
-const toolCallEvent = (id: string, args: string): StreamEvent => ({
+const toolCallEvent = (id: string, args: string, name = 'web_search'): StreamEvent => ({
   type: 'tool_call',
-  call: { id, name: 'web_search', arguments: args },
+  call: { id, name, arguments: args },
 });
 const defaultEvents = (): StreamEvent[] => [text('Hel'), text('lo!'), finish('stop')];
 
-function stubToolRunner(result: string, onExec?: () => void): ToolRunner {
+function stubToolRunner(
+  result: string,
+  onExec?: () => void,
+  name = 'web_search',
+): ToolRunner {
   return new ToolRunner([
     {
-      name: 'web_search',
-      description: 'fake search',
-      parameters: { type: 'object', properties: { query: { type: 'string' } } },
+      name,
+      description: 'fake tool',
+      parameters: { type: 'object', properties: {} },
       async exec() {
         onExec?.();
         return result;
@@ -46,8 +50,13 @@ interface CapturedMessage {
   tool_call_id?: string;
 }
 
-function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner) {
+function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner, opts?: { holdFirst?: boolean }) {
   const calls: { model: string; hasTools: boolean; messages: CapturedMessage[] }[] = [];
+  const holdFirst = opts?.holdFirst ?? false;
+  let releaseFirst: (() => void) | undefined;
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
   const providerState: {
     fail: boolean;
     failStatus?: number;
@@ -87,6 +96,7 @@ function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner) {
         messages: capture(messages),
       });
       throwIfFail(callIndex);
+      if (holdFirst && callIndex === 1) await firstGate;
       const events =
         providerState.script.length > 0
           ? (providerState.script.shift() as StreamEvent[])
@@ -124,6 +134,7 @@ function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner) {
     registry,
     sessions,
     calls,
+    releaseFirst: () => releaseFirst?.(),
     setFail: (v: boolean) => (providerState.fail = v),
     setFailWithStatus: (status: number) => (providerState.failStatus = status),
     setFailWithStatusOnce: (status: number) => (providerState.failStatusOnce = status),
@@ -720,5 +731,69 @@ describe('工具调用循环', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('read_url：模型读链接后第二轮带上正文', async () => {
+    const tools = stubToolRunner('[链接] https://a\n\n页面正文内容', undefined, 'read_url');
+    const { bot, calls, setScript } = makeDeps(undefined, tools);
+    setScript([
+      [toolCallEvent('r1', '{"url":"https://a"}', 'read_url'), finish('tool_calls')],
+    ]);
+    await bot.handle(fakeMsg('https://a 这篇讲了什么').msg);
+    expect(calls).toHaveLength(2);
+    expect((calls[1]?.messages ?? []).at(-1)).toEqual({
+      role: 'tool',
+      tool_call_id: 'r1',
+      content: '[链接] https://a\n\n页面正文内容',
+    });
+  });
+});
+
+describe('会话消息排队', () => {
+  it('同会话严格串行：后一条等前一条完成才进 LLM', async () => {
+    const { bot, calls, releaseFirst } = makeDeps(undefined, undefined, { holdFirst: true });
+    const p1 = bot.handle(fakeMsg('第一条', { chatId: 'q1' }).msg);
+    const p2 = bot.handle(fakeMsg('第二条', { chatId: 'q1' }).msg);
+    await vi.waitFor(() => expect(calls).toHaveLength(1)); // 第一条已进 LLM
+    releaseFirst();
+    expect(calls).toHaveLength(1); // 第二条仍在排队，未进 LLM
+    await Promise.all([p1, p2]);
+    expect(calls).toHaveLength(2);
+    // 第二条请求的历史里已含第一条的回答 → 顺序得到保证
+    expect(
+      (calls[1]?.messages ?? []).some((m) => m.role === 'assistant' && m.content === 'Hello!'),
+    ).toBe(true);
+  });
+
+  it('不同会话并行互不阻塞', async () => {
+    const { bot, calls, releaseFirst } = makeDeps(undefined, undefined, { holdFirst: true });
+    const p1 = bot.handle(fakeMsg('A', { chatId: 'qa' }).msg);
+    await bot.handle(fakeMsg('B', { chatId: 'qb' }).msg); // 不等 A 的 gate，直接完成
+    expect(calls).toHaveLength(2);
+    releaseFirst();
+    await p1;
+  });
+
+  it('排队深度达到上限后丢弃新消息', async () => {
+    const { bot, calls, releaseFirst } = makeDeps(undefined, undefined, { holdFirst: true });
+    const pending: Promise<void>[] = [];
+    for (let i = 0; i < 6; i++) {
+      pending.push(bot.handle(fakeMsg(`m${i}`, { chatId: 'qf' }).msg));
+    }
+    await vi.waitFor(() => expect(calls).toHaveLength(1)); // 第一条已进 LLM
+    expect(calls).toHaveLength(1); // 第 6 条在入队前即被丢弃
+    releaseFirst();
+    await Promise.all(pending);
+    expect(calls).toHaveLength(5);
+  });
+
+  it('队清空后状态回收，新消息正常处理', async () => {
+    const { bot, calls, releaseFirst } = makeDeps(undefined, undefined, { holdFirst: true });
+    const p1 = bot.handle(fakeMsg('占位', { chatId: 'qr' }).msg);
+    const p2 = bot.handle(fakeMsg('排队', { chatId: 'qr' }).msg);
+    releaseFirst();
+    await Promise.all([p1, p2]);
+    await bot.handle(fakeMsg('恢复', { chatId: 'qr' }).msg);
+    expect(calls.filter((c) => c.hasTools === false)).toHaveLength(3);
   });
 });
