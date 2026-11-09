@@ -2,7 +2,7 @@ import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import type { ToolContext } from '../types';
 import { createWebSearchTool } from './index';
-import type { SearchProvider } from './tavily';
+import type { SearchProvider, SearchResult } from './tavily';
 
 const log = pino({ level: 'silent' });
 
@@ -10,7 +10,7 @@ function ctxOf(chatId = 'c1'): ToolContext {
   return { platform: 'telegram', chatId, senderId: 'u1', isGroup: false, log };
 }
 
-function fakeProvider(results: { title: string; url: string; content: string }[]) {
+function fakeProvider(results: SearchResult[]) {
   const calls: string[] = [];
   const provider: SearchProvider = {
     id: 'fake',
@@ -32,17 +32,19 @@ function makeTool(
 }
 
 describe('createWebSearchTool', () => {
-  it('首次调用成功并格式化结果', async () => {
+  it('首次调用成功并格式化结果，published_date 标注为发布日期', async () => {
     const t = 0;
     const { provider, calls } = fakeProvider([
-      { title: 'A', url: 'https://a', content: '内容A内容A' },
+      { title: 'A', url: 'https://a', content: '内容A内容A', publishedDate: '2026-11-08T21:30:00Z' },
+      { title: 'B', url: 'https://b', content: '内容B' },
     ]);
     const tool = makeTool(provider, () => t);
     const out = await tool.exec({ query: '北京天气' }, ctxOf());
     expect(calls).toEqual(['北京天气']);
-    expect(out).toContain('[1] A');
+    expect(out).toContain('[1] A（发布：2026-11-08）');
     expect(out).toContain('https://a');
     expect(out).toContain('内容A内容A');
+    expect(out).toContain('[2] B\n'); // 无日期不标注
   });
 
   it('冷却期内返回剩余秒数，provider 不被调', async () => {

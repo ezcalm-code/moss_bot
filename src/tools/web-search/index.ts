@@ -4,6 +4,13 @@ import type { SearchProvider } from './tavily';
 /** 单条结果 content 截断，防搜索结果撑爆小上下文模型 */
 const MAX_RESULT_CONTENT_CHARS = 500;
 
+/** Tavily 的 published_date 可能是 ISO（取日期段）也可能是 RFC 长格式（原样保留） */
+function formatDate(published?: string): string {
+  if (!published) return '';
+  const iso = published.match(/^(\d{4}-\d{2}-\d{2})/);
+  return iso ? (iso[1] as string) : published.trim();
+}
+
 export interface WebSearchToolOptions {
   provider: SearchProvider;
   maxResults: number;
@@ -69,7 +76,10 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
           return `未搜索到与「${query}」相关的结果。请基于已有知识回答，并说明未能获取实时信息。`;
         }
         return results
-          .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content.slice(0, MAX_RESULT_CONTENT_CHARS)}`)
+          .map((r, i) => {
+            const date = formatDate(r.publishedDate);
+            return `[${i + 1}] ${r.title}${date ? `（发布：${date}）` : ''}\n${r.url}\n${r.content.slice(0, MAX_RESULT_CONTENT_CHARS)}`;
+          })
           .join('\n\n');
       } catch (err) {
         ctx.log.warn({ err, query }, 'web_search 执行失败');

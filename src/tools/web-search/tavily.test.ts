@@ -12,7 +12,7 @@ function makeFake(status: number, body: string) {
 
 const OK_BODY = JSON.stringify({
   results: [
-    { title: '标题A', url: 'https://a.example', content: '内容A' },
+    { title: '标题A', url: 'https://a.example', content: '内容A内容A', published_date: '2026-11-08T21:30:00Z' },
     { title: '标题B', url: 'https://b.example' },
   ],
 });
@@ -30,8 +30,8 @@ describe('createTavilyProvider', () => {
       max_results: 3,
     });
     expect(results).toEqual([
-      { title: '标题A', url: 'https://a.example', content: '内容A' },
-      { title: '标题B', url: 'https://b.example', content: '' },
+      { title: '标题A', url: 'https://a.example', content: '内容A内容A', publishedDate: '2026-11-08T21:30:00Z' },
+      { title: '标题B', url: 'https://b.example', content: '', publishedDate: undefined },
     ]);
   });
 

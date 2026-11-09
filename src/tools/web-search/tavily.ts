@@ -4,6 +4,8 @@ export interface SearchResult {
   title: string;
   url: string;
   content: string;
+  /** 发布时间（源提供才有）；无日期的内容模型无法判断时效，会混入过期信息 */
+  publishedDate?: string;
 }
 
 /** 搜索源可插拔接口：SearXNG 等自托管源实现同款即可接入 */
@@ -43,12 +45,13 @@ export function createTavilyProvider(opts: TavilyOptions): SearchProvider {
         throw new Error(`Tavily HTTP ${res.status}: ${text.slice(0, 200)}`);
       }
       const data = JSON.parse(text) as {
-        results?: { title?: string; url?: string; content?: string }[];
+        results?: { title?: string; url?: string; content?: string; published_date?: string }[];
       };
       return (data.results ?? []).map((r) => ({
         title: r.title ?? '',
         url: r.url ?? '',
         content: r.content ?? '',
+        publishedDate: r.published_date || undefined,
       }));
     },
   };
