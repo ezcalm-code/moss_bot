@@ -82,6 +82,8 @@ export class FeishuAdapter implements PlatformAdapter {
       appId: this.opts.appId,
       appSecret: this.opts.appSecret,
       domain: this.opts.domain === 'lark' ? Lark.Domain.Lark : Lark.Domain.Feishu,
+      // 诊断期临时开启：观察 WS 订阅注册与事件帧
+      loggerLevel: Lark.LoggerLevel.info,
       onReady: () => this.opts.log.info('feishu 长连接已建立'),
       onReconnecting: () => this.opts.log.warn('feishu 连接断开，重连中'),
       onReconnected: () => this.opts.log.info('feishu 重连成功'),
@@ -99,11 +101,24 @@ export class FeishuAdapter implements PlatformAdapter {
 
   private async onEvent(data: unknown) {
     if (!data) return;
+    const rawMessage = (data as { message?: Record<string, unknown> }).message ?? {};
+    this.opts.log.info(
+      {
+        messageType: rawMessage.message_type,
+        chatType: rawMessage.chat_type,
+        messageId: rawMessage.message_id,
+        hasParent: Boolean(rawMessage.parent_id),
+      },
+      'feishu 收到消息事件',
+    );
     const normalized = normalizeFeishuMessage(
       data as Parameters<typeof normalizeFeishuMessage>[0],
       this.botOpenId,
     );
-    if (!normalized.isTargeted) return;
+    if (!normalized.isTargeted) {
+      this.opts.log.info({ senderId: normalized.senderId }, '群聊消息未 @bot，忽略');
+      return;
+    }
 
     const chatId = normalized.chatId;
     const cardApi = this.makeCardApi();
@@ -121,6 +136,14 @@ export class FeishuAdapter implements PlatformAdapter {
           ? new FeishuStreamReply(cardApi, chatId, this.opts.log)
           : new FeishuSimpleReply(cardApi, chatId, this.opts.log),
       getAttachmentDataUrls: async () => {
+        this.opts.log.info(
+          {
+            messageType: (data as { message?: { message_type?: string } }).message?.message_type,
+            imageKeys: imageKeys.length,
+            hasParent: Boolean(parentId),
+          },
+          'feishu 取图路径',
+        );
         // 本条是图片消息：直接下载
         if (messageId && imageKeys.length > 0) {
           const urls: string[] = [];
@@ -133,6 +156,7 @@ export class FeishuAdapter implements PlatformAdapter {
         // 回复了一条图片消息（图片在被回复消息里）：反查 parent 消息取 image_key
         if (messageId && parentId) {
           const parentKey = await this.fetchParentImageKey(parentId);
+          this.opts.log.info({ parentKey: parentKey ?? null }, 'feishu 反查结果');
           if (parentKey) {
             const buf = await this.downloadImageResource(parentId, parentKey);
             return [`data:image/jpeg;base64,${buf.toString('base64')}`];
@@ -153,7 +177,7 @@ export class FeishuAdapter implements PlatformAdapter {
     const item = res.data?.items?.[0];
     if (item?.msg_type === 'image') {
       try {
-        const key = JSON.parse(item.body?.content ?? '{}')?.image;
+        const key = JSON.parse(item.body?.content ?? '{}')?.image_key;
         return typeof key === 'string' ? key : undefined;
       } catch {
         return undefined;
@@ -171,7 +195,7 @@ export class FeishuAdapter implements PlatformAdapter {
     if (!message) return [];
     if (message.message_type === 'image') {
       try {
-        const key = JSON.parse(message.content ?? '{}')?.image;
+        const key = JSON.parse(message.content ?? '{}')?.image_key;
         return typeof key === 'string' ? [key] : [];
       } catch {
         return [];
