@@ -32,6 +32,10 @@
 - [x] 多模态里程碑：图片理解 / 回复取图 / 飞书 post 富文本 / 飞书图片与重复回复修复（2026-11-09）
 - [x] release v2.0.0：CHANGELOG 定稿 + package.json 2.0.0 + tag 推送 + CI 绿（87af7d0，本机无 gh，以 tag 为 release）
 - [ ] 实时互联网消息：方案 A-D 已给用户评估中；用户对方案 B（Function Calling + 搜索工具）有后续疑问待答
+- [x] 方案 B 实施：工具框架 + web_search（Tavily）+ 5 分钟冷却 + supportsTools 能力位（2026-11-09，150 测试全绿，REPL 三场景实测，9e27f4d）
+  - 证据：[v0.3-tools/results.md](verification/v0.3-tools/results.md)
+  - 教训：⑮ `const res = await opts.fetch ? a() : b()` 的 await 只作用于条件本身，res 拿到的是未 await 的 Promise——ternary 里的副作用调用必须整体先赋值再 await（tavily.test.ts 首轮全红抓出）
+- [ ] 待用户：注册 TAVILY_API_KEY（tavily.com 免费档）→ 搜索成功路径 + TG/飞书真机验收
 
 ## 审查段
 

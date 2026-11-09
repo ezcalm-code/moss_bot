@@ -1,0 +1,28 @@
+# v0.3 工具框架（web_search 联网搜索）验证记录
+
+日期：2026-11-09 · 分支 main · 前置：`scripts/probe-aicloud-tools.mjs` 4/4 PASS（网关 tools 透传）
+
+## 单测（npm test，150 全绿，含新增 ~40 用例）
+
+| 标准 | 用例（文件） | 结果 |
+|---|---|---|
+| tool_call 增量分片重组、事件顺序、finish 缺省、id 回退 | openai-compat.test.ts 10 用例 | PASS |
+| Tavily 请求体/映射/错误/空结果 | tavily.test.ts 4 用例 | PASS |
+| 冷却命中/恢复/失败烧窗/参数错/chatId 隔离 | tools/web-search/index.test.ts 7 用例（假时钟） | PASS |
+| ToolRunner 永不 throw（未知工具/非法 JSON/抛错/截断） | tools/index.test.ts 6 用例 | PASS |
+| tools 段默认值/部分配置/缺 provider/缺 key 报错/supportsTools 透传 | config/schema.test.ts 5 新用例 | PASS |
+| 循环多轮/3 轮上限/空 calls 防死循环/首轮 4xx 降级/后续轮 4xx 不降级/静态关/带图不挂/冷却贯穿/记忆提取照常 | core/bot.test.ts 10 新用例 | PASS |
+
+红灯验证：tavily.ts 的 `await opts.fetch ? :` 优先级 bug 由 tavily.test.ts 首轮全红抓出（res.text is not a function），修复后转绿；bot.ts 降级分支首版 `consumeRound` 作用域错误由「首轮 4xx 降级」用例抓出，修复后转绿。
+
+## REPL 真机实测（aicloud glm/glm-5.3-flash，2026-11-09）
+
+| 场景 | 输入 | 实际结果 |
+|---|---|---|
+| 闲聊不触发搜索 | 「你好呀」 | 正常闲聊回复，无 LLM 搜索调用 |
+| 时效问题触发搜索（占位 key，预期失败兜底） | 「今天比特币价格多少？」 | 模型发起 web_search（query=比特币价格 今日 实时行情）→ Tavily 401 → 模型自然措辞告知搜索不可用，进程与历史正常 |
+| 冷却拦截 | 紧接「再帮我搜一下今天的新闻」 | 工具返回冷却说明，模型转述「搜索还在冷却中……再等四五分钟」，Tavily 未被调用 |
+
+## 待补
+
+- [ ] 真实 TAVILY_API_KEY 后：搜索成功路径 + TG/飞书真机（群/私聊冷却独立计时、流式占位体验）
