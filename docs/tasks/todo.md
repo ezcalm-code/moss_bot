@@ -29,6 +29,9 @@
 - [ ] 飞书真机联调（等自建应用凭据）
 - [x] 提交前脱敏：三轮敏感信息审查（密钥全在 gitignored .env；文档内部域名/服务名/bot 用户名/代理端口已脱敏）
 - [x] 提交代码 → 推远端 → CI 全绿 → tag v0.1.0（2026-11-06，github.com/ezcalm-code/moss_bot）
+- [x] 多模态里程碑：图片理解 / 回复取图 / 飞书 post 富文本 / 飞书图片与重复回复修复（2026-11-09）
+- [x] release v2.0.0：CHANGELOG 定稿 + package.json 2.0.0 + tag 推送 + CI 绿（87af7d0，本机无 gh，以 tag 为 release）
+- [ ] 实时互联网消息：方案 A-D 已给用户评估中；用户对方案 B（Function Calling + 搜索工具）有后续疑问待答
 
 ## 审查段
 
