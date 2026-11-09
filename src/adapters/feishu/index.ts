@@ -74,6 +74,10 @@ export class FeishuAdapter implements PlatformAdapter {
       },
     });
 
+    // 飞书在事件未及时确认时会重推（同一条消息回复两次的根因）：
+    // onEvent 只做归一化与下载的快速部分，LLM 回复改为异步派发，让事件尽快确认。
+    // BotCore.handle 内部已完整兜底错误，不会静默丢失。
+
     this.ws = new Lark.WSClient({
       appId: this.opts.appId,
       appSecret: this.opts.appSecret,
@@ -137,7 +141,10 @@ export class FeishuAdapter implements PlatformAdapter {
         return [];
       },
     };
-    await this.dispatch?.(msg);
+    // 异步派发：handler 立即返回以确认事件；消息处理（LLM 回复）在后台完成
+    void this.dispatch?.(msg).catch((err: unknown) => {
+      this.opts.log.error({ err, chatId }, '消息异步处理失败');
+    });
   }
 
   /** 回复场景：反查被回复消息，若含图片（image 或 post 富文本）则返回第一个 image_key */
