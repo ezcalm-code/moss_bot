@@ -43,7 +43,12 @@
 - [x] release v2.1.0：联网搜索 + 工具框架（CHANGELOG 定稿 + tag 推送 + GitHub Release + CI 绿）
 - [x] 三项改进（2026-11-09，c9b25ea，163 测试全绿，REPL 实测 read_url PASS）：飞书流式卡片修复（sequence 起始 1，官方文档确认）+ per-chat 消息排队（深度≥5 丢弃）+ read_url 读链接工具（Tavily Extract）；README/ROADMAP 清理（56531d5）
   - 证据：[v0.3-tools/results.md](verification/v0.3-tools/results.md) 三项改进小节
-- [ ] 真机验收清单：飞书流式打字机 / TG 群聊超长分段（AC3.3）/ 群刷屏丢弃 / 链接阅读（用户配合，待完成）
+- [x] v0.4 主体（2026-11-09，e052e9a，180 测试全绿）：定时提醒（自然语言工具+/remind 命令+持久化+重启补投+双平台 sendTo）、TG Markdown 渲染（400 降级纯文本）、同轮搜索放行+轮数上限 5
+  - 证据：[v0.4-reminders/results.md](verification/v0.4-reminders/results.md)
+  - 教训：⑰ REPL 退出被 pino-pretty worker 挂住——exitCode 软退出永不生效、stdout 回调式退出在 /dev/null 下不触发，进程曾存活到提醒到期把它投进 /dev/null（「补投无打印」假象的根源）；解法是普通 timer 兜底硬退。⑯ 同源提醒：**验证时要核对进程真的退了**，盘上状态变化可能是别的存活进程干的
+- [ ] v0.4 真机验收（用户）：TG/飞书设 2 分钟提醒收推送、TG Markdown 排版与降级、连招复验
+- [ ] 挂账：AC3.3 TG 群聊超长回复分段、群刷屏丢弃真机触发、desktop 分支合并决策
+- [ ] CI 失败处理：8c86fcb 疑似 prefer-const lint 失败（修复已含在 e052e9a），网络恢复推送后核验变绿
 
 ## 审查段
 
