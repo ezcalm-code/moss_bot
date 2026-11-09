@@ -49,10 +49,19 @@ npm run chat                    # 终端 REPL，先验证模型链路，无需�
 ### 接入飞书
 
 1. 到 [飞书开放平台](https://open.feishu.cn/) 创建**企业自建应用**，在「凭证与基础信息」页拿到 App ID / App Secret 填入 `.env`
-2. 开通权限：`im:message`（读取与发送消息）
-3. 「事件与回调」页选择**长连接模式**，订阅事件 `im.message.receive_v1`
-4. 发布应用版本，`config.yaml` 中把 `feishu.enabled` 改为 `true`
-5. `npm run dev`
+2. 「应用功能 → 机器人」**开启机器人能力**——不开此能力 bot 无法上线（接口报 11205）
+3. 「开发配置 → 权限管理」开通以下权限（控制台搜索 scope 或近似中文名即可，名称以控制台实际为准）：
+
+   | 权限 | scope | 用途 |
+   |---|---|---|
+   | 读取用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` | 收私聊消息（与群聊权限相互独立，漏开表现为私聊不回） |
+   | 读取群聊中@机器人他的消息 | `im:message.group_at_msg:readonly` | 收群聊 @ 消息 |
+   | 获取与发送单聊、群组消息 | `im:message` | 发送回复、下载图片（图片理解依赖此权限） |
+   | 创建、更新卡片（可选） | `cardkit:card` | 仅 `feishu.streaming: true` 流式卡片需要；不开建议保持 `streaming: false` |
+
+4. 「事件与回调」页选择**长连接模式**，订阅事件 `im.message.receive_v1`（排查收不到消息时，先回这页核对订阅是否仍在）
+5. **发布应用版本**——权限与事件变更必须发新版本才生效；然后把 `config.yaml` 中 `feishu.enabled` 改为 `true`
+6. `npm run dev`
 
 ### 模型配置
 
