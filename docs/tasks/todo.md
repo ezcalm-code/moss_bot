@@ -12,7 +12,7 @@
 - 已拍板：TypeScript；LLM 层 OpenAI 兼容、多模型可插拔
 - 项目名沿用目录名 moss-bots
 
-计划全文见 [docs/ROADMAP.md](../ROADMAP.md)，架构见 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
+计划全文（原 docs/ROADMAP.md，v0.1 五阶段）已随 2.x 实际走向分叉，2026-11-09 删除，原文可从 git 历史回溯；架构见 [docs/ARCHITECTURE.md](../ARCHITECTURE.md)。
 
 ## 当前进度
 

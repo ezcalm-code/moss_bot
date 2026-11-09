@@ -93,10 +93,11 @@ docker compose up -d
 ## Roadmap
 
 - [x] v0.1 聊天版：双平台接入、多模型、流式回复、人设、会话记忆
-- [ ] v0.2 多模态：图片理解、Markdown 渲染
-- [ ] v0.3 任务执行：tool use / agent loop，让 bot 能真正「干活」
+- [x] v0.2 多模态：图片理解（Markdown 渲染待飞书卡片权限，暂缓）
+- [x] v0.3 联网搜索：web_search 工具 + Function Calling 框架（v2.1.0）
+- [ ] v0.4 任务执行：在工具框架上扩展更多工具，让 bot 能真正「干活」
 
-完整规划见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+进展明细见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 参与贡献
 
