@@ -41,6 +41,9 @@
   ⑪ 同样适用：旧提交 9e27f4d 的 blob 仍含域名，彻底清除需用户拍板历史重写
 - [x] TG/飞书真机验收通过（2026-11-09，用户确认）
 - [x] release v2.1.0：联网搜索 + 工具框架（CHANGELOG 定稿 + tag 推送 + GitHub Release + CI 绿）
+- [x] 三项改进（2026-11-09，c9b25ea，163 测试全绿，REPL 实测 read_url PASS）：飞书流式卡片修复（sequence 起始 1，官方文档确认）+ per-chat 消息排队（深度≥5 丢弃）+ read_url 读链接工具（Tavily Extract）；README/ROADMAP 清理（56531d5）
+  - 证据：[v0.3-tools/results.md](verification/v0.3-tools/results.md) 三项改进小节
+- [ ] 真机验收清单：飞书流式打字机 / TG 群聊超长分段（AC3.3）/ 群刷屏丢弃 / 链接阅读（用户配合，待完成）
 
 ## 审查段
 
