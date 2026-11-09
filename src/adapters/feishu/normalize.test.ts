@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildStreamingCard, normalizeFeishuMessage, type FeishuEventLike } from './normalize';
+import {
+  buildStreamingCard,
+  extractPostContent,
+  normalizeFeishuMessage,
+  type FeishuEventLike,
+} from './normalize';
 
 const BOT_OPEN_ID = 'ou_bot123';
 
@@ -117,5 +122,55 @@ describe('buildStreamingCard', () => {
       body: { elements: { content: string }[] };
     };
     expect(card.body.elements[0]?.content).toBe('…');
+  });
+});
+
+describe('extractPostContent（飞书图文消息）', () => {
+  const postContent = JSON.stringify({
+    title: '看看',
+    content: [
+      [
+        { tag: 'text', text: '帮我看看这张图' },
+        { tag: 'img', image_key: 'img_v2_abc' },
+        { tag: 'a', text: '链接', href: 'https://x.com' },
+        { tag: 'at', user_id: 'ou_1', user_name: '张三', tag_name: 'at' },
+      ],
+      [{ tag: 'text', text: '第二段' }],
+    ],
+  });
+
+  it('提取文本与图片 key', () => {
+    const parts = extractPostContent(postContent);
+    expect(parts.text).toContain('帮我看看这张图');
+    expect(parts.text).toContain('第二段');
+    expect(parts.text).toContain('张三');
+    expect(parts.imageKeys).toEqual(['img_v2_abc']);
+  });
+
+  it('损坏 JSON 返回空', () => {
+    const parts = extractPostContent('{broken');
+    expect(parts.text).toBe('');
+    expect(parts.imageKeys).toEqual([]);
+  });
+
+  it('normalizeFeishuMessage 处理 post 图文消息：文本提取、图片附件、群聊 @bot 触发', () => {
+    const m = normalizeFeishuMessage(
+      {
+        message: {
+          message_id: 'om_p1',
+          chat_id: 'oc_g1',
+          chat_type: 'group',
+          message_type: 'post',
+          content: postContent,
+          mentions: [{ key: '@_user_1', id: { open_id: BOT_OPEN_ID }, name: 'Moss' }],
+        },
+        sender: { sender_id: { open_id: 'ou_user1' } },
+      },
+      BOT_OPEN_ID,
+    );
+    expect(m.isTargeted).toBe(true);
+    expect(m.text).toContain('帮我看看这张图');
+    expect(m.text).not.toContain('@_user_1');
+    expect(m.attachments).toEqual([{ type: 'image' }]);
   });
 });

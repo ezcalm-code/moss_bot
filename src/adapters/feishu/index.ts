@@ -1,7 +1,7 @@
 import * as Lark from '@larksuiteoapi/node-sdk';
 import type { Logger } from '../../log';
 import type { IncomingMessage, PlatformAdapter, PlatformId } from '../types';
-import { normalizeFeishuMessage } from './normalize';
+import { extractPostContent, normalizeFeishuMessage } from './normalize';
 import { FeishuSimpleReply, FeishuStreamReply, type FeishuCardApi } from './stream';
 
 export interface FeishuAdapterOptions {
@@ -140,29 +140,40 @@ export class FeishuAdapter implements PlatformAdapter {
     await this.dispatch?.(msg);
   }
 
-  /** 回复场景：反查被回复消息，若其为图片则返回 image_key */
+  /** 回复场景：反查被回复消息，若含图片（image 或 post 富文本）则返回第一个 image_key */
   private async fetchParentImageKey(parentId: string): Promise<string | undefined> {
     const res = await this.client.im.v1.message.get({ path: { message_id: parentId } });
     const item = res.data?.items?.[0];
-    if (item?.msg_type !== 'image') return undefined;
-    try {
-      const key = JSON.parse(item.body?.content ?? '{}')?.image;
-      return typeof key === 'string' ? key : undefined;
-    } catch {
-      return undefined;
+    if (item?.msg_type === 'image') {
+      try {
+        const key = JSON.parse(item.body?.content ?? '{}')?.image;
+        return typeof key === 'string' ? key : undefined;
+      } catch {
+        return undefined;
+      }
     }
+    if (item?.msg_type === 'post') {
+      return extractPostContent(item.body?.content ?? '').imageKeys[0];
+    }
+    return undefined;
   }
 
-  /** 收集图片消息的 image_key（content JSON 里的 image 字段） */
+  /** 收集图片消息的 image_key（image 消息或 post 富文本内嵌图片） */
   private collectImageKeys(data: unknown): string[] {
     const message = (data as { message?: { message_type?: string; content?: string } }).message;
-    if (message?.message_type !== 'image') return [];
-    try {
-      const key = JSON.parse(message.content ?? '{}')?.image;
-      return typeof key === 'string' ? [key] : [];
-    } catch {
-      return [];
+    if (!message) return [];
+    if (message.message_type === 'image') {
+      try {
+        const key = JSON.parse(message.content ?? '{}')?.image;
+        return typeof key === 'string' ? [key] : [];
+      } catch {
+        return [];
+      }
     }
+    if (message.message_type === 'post') {
+      return extractPostContent(message.content ?? '').imageKeys;
+    }
+    return [];
   }
 
   /** 通过 SDK 下载飞书图片资源为 Buffer */
