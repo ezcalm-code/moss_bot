@@ -46,6 +46,7 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
       const last = lastUsed.get(key);
       if (last !== undefined && now() - last < cooldownMs) {
         const remainSec = Math.ceil((cooldownMs - (now() - last)) / 1000);
+        ctx.log.info({ platform: ctx.platform, chatId: ctx.chatId, remainSec }, 'web_search 冷却命中');
         return (
           `web_search 处于冷却中：本会话距上次搜索不足 ${opts.cooldownMinutes} 分钟，剩余约 ${remainSec} 秒。` +
           '请告知用户稍后再试，或直接基于已有知识回答。'
@@ -53,11 +54,17 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
       }
       lastUsed.set(key, now());
 
+      const started = Date.now();
       try {
         const results = await opts.provider.search(query, {
           maxResults: opts.maxResults,
           signal: ctx.signal,
         });
+        // 搜索质量排查靠这条：query 由模型自由组装，不同会话措辞不同，召回差异大
+        ctx.log.info(
+          { query, results: results.length, tookMs: Date.now() - started },
+          'web_search 完成',
+        );
         if (results.length === 0) {
           return `未搜索到与「${query}」相关的结果。请基于已有知识回答，并说明未能获取实时信息。`;
         }
