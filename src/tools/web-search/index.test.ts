@@ -6,8 +6,18 @@ import { TavilyHttpError, type SearchProvider, type SearchResult } from './tavil
 
 const log = pino({ level: 'silent' });
 
-function ctxOf(chatId = 'c1'): ToolContext {
-  return { platform: 'telegram', chatId, senderId: 'u1', isGroup: false, log };
+let turnSeq = 0;
+
+function ctxOf(chatId = 'c1', turnId = `t${++turnSeq}`): ToolContext {
+  return {
+    platform: 'telegram',
+    chatId,
+    senderId: 'u1',
+    senderName: 'U1',
+    isGroup: false,
+    turnId,
+    log,
+  };
 }
 
 function fakeProvider(results: SearchResult[]) {
@@ -90,7 +100,7 @@ describe('createWebSearchTool', () => {
   });
 
   it('连接层失败（超时/DNS）未计费，回滚冷却窗允许立即重试', async () => {
-    let t = 0;
+    const t = 0;
     let n = 0;
     const flaky: SearchProvider = {
       id: 'flaky',
@@ -131,5 +141,14 @@ describe('createWebSearchTool', () => {
     await tool.exec({ query: 'q' }, ctxOf('c1'));
     await tool.exec({ query: 'q' }, ctxOf('c2'));
     expect(calls).toHaveLength(2);
+  });
+
+  it('同一 turn（agent 连招）内多次搜索放行，不受冷却限制', async () => {
+    const { provider, calls } = fakeProvider([{ title: 'A', url: 'https://a', content: 'x' }]);
+    const tool = makeTool(provider, () => 0);
+    await tool.exec({ query: 'q1' }, ctxOf('c1', 'turn-7'));
+    const out = await tool.exec({ query: 'q2' }, ctxOf('c1', 'turn-7')); // 同 turn
+    expect(calls).toHaveLength(2);
+    expect(out).toContain('[1] A');
   });
 });

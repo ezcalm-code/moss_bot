@@ -100,6 +100,10 @@ export class TelegramAdapter implements PlatformAdapter {
     await this.grammy.stop();
   }
 
+  async sendTo(chatId: string, text: string): Promise<void> {
+    await this.grammy.api.sendMessage(chatId, text);
+  }
+
   async registerCommands(
     commands: readonly { name: string; description: string }[],
   ): Promise<void> {

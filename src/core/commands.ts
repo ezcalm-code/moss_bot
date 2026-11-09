@@ -1,6 +1,8 @@
 import type { IncomingMessage } from '../adapters/types';
 import type { LlmRegistry } from '../llm/registry';
 import { memoryKeyOf, type UserMemoryStore } from '../memory/store';
+import { formatDisplay, parseRemindTime } from '../reminders/parse';
+import type { ReminderService } from '../reminders/service';
 import { texts } from '../text';
 import type { SessionManager } from './session';
 
@@ -17,6 +19,7 @@ export interface CommandDeps {
   sessions: SessionManager;
   personaName: string;
   memory?: UserMemoryStore;
+  reminders?: ReminderService;
 }
 
 export interface CommandSpec {
@@ -225,6 +228,83 @@ export function builtinCommands(): CommandSpec[] {
         const key = memoryKeyOf(ctx.msg.platform, ctx.msg.senderId);
         await deps.memory.clear(key);
         await ctx.reply('已清空关于你的记忆。我们重新认识一下吧。');
+      },
+    },
+    {
+      name: 'remind',
+      visible: true,
+      description: '到点提醒你做某事（如 /remind 09:00 起床）',
+      usage: '/remind <HH:MM 或 YYYY-MM-DD HH:MM> <内容>',
+      async handler(ctx, deps) {
+        if (!deps.reminders) {
+          await ctx.reply('提醒功能未装配。');
+          return;
+        }
+        const m = /^(\S+)\s+([\s\S]+)$/.exec(ctx.args.trim());
+        if (!m) {
+          await ctx.reply(
+            '想提醒你什么？格式：/remind <时间> <内容>\n时间支持 HH:MM（今天，已过则明天）或 2026-11-10 09:00。',
+          );
+          return;
+        }
+        const parsed = parseRemindTime(m[1] ?? '');
+        if (!parsed) {
+          await ctx.reply(`时间「${m[1]}」看不懂。用 HH:MM 或 YYYY-MM-DD HH:MM 再试一次？`);
+          return;
+        }
+        try {
+          const r = deps.reminders.add({
+            platform: ctx.msg.platform,
+            chatId: ctx.msg.chatId,
+            senderName: ctx.msg.senderName || '用户',
+            text: (m[2] ?? '').trim(),
+            dueAt: parsed.dueAt,
+          });
+          await ctx.reply(`好，已记下（id: ${r.id}）：${parsed.display} 提醒你「${r.text}」。`);
+        } catch (err) {
+          await ctx.reply(`没设成：${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
+    },
+    {
+      name: 'reminders',
+      visible: true,
+      description: '列出本会话的定时提醒',
+      usage: '/reminders',
+      async handler(ctx, deps) {
+        if (!deps.reminders) {
+          await ctx.reply('提醒功能未装配。');
+          return;
+        }
+        const list = deps.reminders.listByChat(ctx.msg.chatId);
+        if (list.length === 0) {
+          await ctx.reply('这个会话还没有待触发的提醒。');
+          return;
+        }
+        const lines = list.map(
+          (r) => `${r.id} · ${formatDisplay(new Date(r.dueAt))} · ${r.text}`,
+        );
+        await ctx.reply(`待触发的提醒：\n${lines.join('\n')}\n用 /unremind <id> 取消。`);
+      },
+    },
+    {
+      name: 'unremind',
+      visible: true,
+      description: '取消一个定时提醒',
+      usage: '/unremind <id>',
+      async handler(ctx, deps) {
+        if (!deps.reminders) {
+          await ctx.reply('提醒功能未装配。');
+          return;
+        }
+        const id = ctx.args.trim();
+        if (!id) {
+          await ctx.reply('要取消哪个？/reminders 看列表，然后 /unremind <id>。');
+          return;
+        }
+        await ctx.reply(
+          deps.reminders.cancel(id, ctx.msg.chatId) ? `已取消提醒 ${id}。` : `没找到提醒 ${id}（/reminders 看看列表）。`,
+        );
       },
     },
   ];

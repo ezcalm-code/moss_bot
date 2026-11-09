@@ -76,10 +76,12 @@ export const SEARCH_PROVIDER_FACTORIES: Record<
   tavily: createTavilyProvider,
 };
 
-/** 装配点入口；enabled=false 或缺 tools 段返回 undefined（BotCore 视为无工具） */
+/** 装配点入口；enabled=false 或缺 tools 段返回 undefined（BotCore 视为无工具）。
+ * extras：装配方注入的额外工具（如 schedule_reminder），与内置工具并存 */
 export function createToolRunner(
   config: ResolvedConfig['tools'],
   proxyDispatcher?: Dispatcher,
+  extras?: readonly ToolSpec[],
 ): ToolRunner | undefined {
   const ws = config.webSearch;
   if (!ws.enabled) return undefined;
@@ -104,5 +106,5 @@ export function createToolRunner(
     cooldownMinutes: ws.cooldownMinutes,
   });
   const readUrl = createReadUrlTool({ extractor });
-  return new ToolRunner([spec, readUrl]);
+  return new ToolRunner([spec, readUrl, ...(extras ?? [])]);
 }

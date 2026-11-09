@@ -8,6 +8,9 @@ import { BotCore } from '../core/bot';
 import { SessionManager } from '../core/session';
 import { buildRegistry } from '../llm/registry';
 import { createLogger } from '../log';
+import { createReminderTool } from '../reminders/reminder-tool';
+import { ReminderService } from '../reminders/service';
+import { ReminderStore } from '../reminders/store';
 import { createToolRunner } from '../tools';
 import { FileSessionStore } from '../stores/file';
 import { MemorySessionStore } from '../stores/memory';
@@ -51,7 +54,10 @@ async function main(): Promise<void> {
   const log = createLogger(config.log.level);
   const proxyDispatcher = getProxyDispatcher();
   const registry = buildRegistry(config, proxyDispatcher);
-  const tools = createToolRunner(config.tools, proxyDispatcher);
+  const reminders = new ReminderService(new ReminderStore(join('data', 'reminders'), log), log);
+  const tools = createToolRunner(config.tools, proxyDispatcher, [
+    createReminderTool({ service: reminders }),
+  ]);
   const store =
     config.session.store === 'file'
       ? new FileSessionStore(join('data', 'sessions'), log)
@@ -66,6 +72,11 @@ async function main(): Promise<void> {
     log,
     memory,
     tools,
+    reminders,
+  });
+  // REPL 的提醒投递直接打到终端
+  reminders.start(async (_platform, _chatId, text) => {
+    console.log(`\n⏰ ${text}\n`);
   });
 
   const { entry, provider } = registry.resolve();
@@ -95,8 +106,12 @@ async function main(): Promise<void> {
     void chain
       .catch(() => {})
       .then(() => {
+        reminders.stop();
         console.log('\n再见');
-        process.exit(0);
+        // pino-pretty worker（独立线程）会挂住事件循环，exitCode 软退出永不生效；
+        // stdout 回调式退出也不可靠（重定向到 /dev/null 时不触发）。
+        // 普通 timer（不 unref）到点硬退，200ms 足够小消息刷出
+        setTimeout(() => process.exit(0), 200);
       });
   });
 }

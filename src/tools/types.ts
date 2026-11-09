@@ -6,7 +6,10 @@ export interface ToolContext {
   readonly platform: PlatformId;
   readonly chatId: string;
   readonly senderId: string;
+  readonly senderName: string;
   readonly isGroup: boolean;
+  /** 单次用户消息一个 id：同一轮内多次工具调用可据此放行（如 web_search 同轮不冷却） */
+  readonly turnId: string;
   readonly log: Logger;
   readonly signal?: AbortSignal;
 }

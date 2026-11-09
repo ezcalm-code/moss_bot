@@ -43,4 +43,6 @@ export interface PlatformAdapter {
   setDispatcher(dispatch: (msg: IncomingMessage) => Promise<void>): void;
   /** 注册命令菜单（Telegram setMyCommands）；飞书无此概念可不实现 */
   registerCommands?(commands: readonly { name: string; description: string }[]): Promise<void>;
+  /** 主动向指定会话推送文本（定时提醒等不经过收件消息的场景） */
+  sendTo(chatId: string, text: string): Promise<void>;
 }

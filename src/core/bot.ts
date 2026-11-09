@@ -1,15 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from '../adapters/types';
 import type { Logger } from '../log';
 import type { LlmRegistry } from '../llm/registry';
 import type { ChatMessage, MessageContent, ToolCall } from '../llm/types';
 import { buildExtractPrompt, memoryKeyOf, type UserMemoryStore } from '../memory/store';
+import type { ReminderService } from '../reminders/service';
 import { toFunctionTool, type ToolRunner } from '../tools';
 import { texts } from '../text';
 import { builtinCommands, CommandRegistry, parseCommand, type CommandDeps } from './commands';
 import type { SessionManager } from './session';
 
-/** 单次用户消息内允许的最多工具执行轮数；第 4 次请求起不带 tools 强制纯文本作答 */
-const MAX_TOOL_ROUNDS = 3;
+/** 单次用户消息内允许的最多工具执行轮数；第 6 次请求起不带 tools 强制纯文本作答 */
+const MAX_TOOL_ROUNDS = 5;
 
 /** 同会话排队上限：达到后丢弃新消息（群聊刷屏防护）；私聊正常使用到不了 */
 const MAX_PENDING_PER_CHAT = 5;
@@ -24,6 +26,8 @@ export interface BotCoreOptions {
   memory?: UserMemoryStore;
   /** 工具执行器；缺省 = 无工具（请求不带 tools） */
   tools?: ToolRunner;
+  /** 定时提醒服务；缺省 = 提醒命令不可用 */
+  reminders?: ReminderService;
 }
 
 /** 平台无关的消息管道：命令路由 → 群聊过滤 → 会话装载 → LLM 流式回复 → 历史回写 */
@@ -47,6 +51,7 @@ export class BotCore {
       sessions: opts.sessions,
       personaName: opts.personaName,
       memory: opts.memory,
+      reminders: opts.reminders,
       commands: null as unknown as CommandRegistry,
     };
     this.commands = new CommandRegistry(builtinCommands());
@@ -130,6 +135,7 @@ export class BotCore {
     const { registry, sessions } = this.deps;
     const session = await sessions.get(msg.platform, msg.chatId);
     const entry = registry.entryFor(session.modelAlias);
+    const turnId = randomUUID();
 
     // 无条件探测图片：本条带图、或回复了图片消息（图在被回复消息里）都由此取到；
     // 无图时实现返回空数组，代价极小
@@ -191,7 +197,7 @@ export class BotCore {
           toolRound < MAX_TOOL_ROUNDS ? toolDefs : undefined,
         );
         if (finish !== 'tool_calls' || calls.length === 0) break;
-        const toolMsgs = await this.execToolCalls(calls, msg);
+        const toolMsgs = await this.execToolCalls(calls, msg, turnId);
         pending = [...pending, { role: 'assistant', content: roundText, tool_calls: calls }, ...toolMsgs];
         toolRound++;
       }
@@ -231,6 +237,7 @@ export class BotCore {
   private async execToolCalls(
     calls: readonly ToolCall[],
     msg: IncomingMessage,
+    turnId: string,
   ): Promise<ChatMessage[]> {
     if (!this.tools) return [];
     const out: ChatMessage[] = [];
@@ -239,7 +246,9 @@ export class BotCore {
         platform: msg.platform,
         chatId: msg.chatId,
         senderId: msg.senderId,
+        senderName: msg.senderName,
         isGroup: msg.isGroup,
+        turnId,
         log: this.log,
       });
       out.push({ role: 'tool', tool_call_id: call.id, content: result });
@@ -290,10 +299,12 @@ function isClientApiRejection(err: unknown): boolean {
   return typeof status === 'number' && status >= 400 && status < 500;
 }
 
-/** 模型无时间感知（训练截止 + 无时钟），「今天/最近」类问题与搜索结果的日期归属都靠这行锚定 */
+/** 模型无时间感知（训练截止 + 无时钟），「今天/最近/X分钟后」类问题与工具的时间推算都靠这行锚定 */
 function currentDateLine(): string {
   const d = new Date();
   const week = '日一二三四五六'[d.getDay()];
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return `今天的日期是 ${date}（周${week}）。用户说「今天/昨天/最近」时以此为准；信息无法确认时效时，明确说明日期与不确定性。`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `现在的本地时间是 ${date} ${clock}（周${week}）。用户说「今天/昨天/最近/X分钟后」时以此为准推算；信息无法确认时效时，明确说明日期与不确定性。`;
 }

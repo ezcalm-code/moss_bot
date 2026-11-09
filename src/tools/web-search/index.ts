@@ -20,13 +20,13 @@ export interface WebSearchToolOptions {
 }
 
 /**
- * web_search 工具：按 `${platform}:${chatId}` 冷却（群聊私聊同规则，护搜索源免费额度）。
- * 写入冷却时间先于搜索调用——失败也烧窗口，防止网络抖动反复重试烧穿配额。
+ * web_search 工具：跨轮按 `${platform}:${chatId}` 冷却（群聊私聊同规则，护搜索源免费额度）；
+ * 同一轮（turnId 相同）的 agent 连招放行——搜→读→再搜是合法组合，不该被冷却腰斩。
  */
 export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
   const cooldownMs = opts.cooldownMinutes * 60_000;
   const now = opts.now ?? Date.now;
-  const lastUsed = new Map<string, number>();
+  const lastUsed = new Map<string, { t: number; turnId: string }>();
 
   return {
     name: 'web_search',
@@ -47,19 +47,19 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
       }
 
       const key = `${ctx.platform}:${ctx.chatId}`;
-      for (const [k, t] of lastUsed) {
-        if (now() - t >= cooldownMs) lastUsed.delete(k);
+      for (const [k, v] of lastUsed) {
+        if (now() - v.t >= cooldownMs) lastUsed.delete(k);
       }
       const last = lastUsed.get(key);
-      if (last !== undefined && now() - last < cooldownMs) {
-        const remainSec = Math.ceil((cooldownMs - (now() - last)) / 1000);
+      if (last !== undefined && last.turnId !== ctx.turnId && now() - last.t < cooldownMs) {
+        const remainSec = Math.ceil((cooldownMs - (now() - last.t)) / 1000);
         ctx.log.info({ platform: ctx.platform, chatId: ctx.chatId, remainSec }, 'web_search 冷却命中');
         return (
           `web_search 处于冷却中：本会话距上次搜索不足 ${opts.cooldownMinutes} 分钟，剩余约 ${remainSec} 秒。` +
           '请告知用户稍后再试，或直接基于已有知识回答。'
         );
       }
-      lastUsed.set(key, now());
+      lastUsed.set(key, { t: now(), turnId: ctx.turnId });
 
       const started = Date.now();
       try {

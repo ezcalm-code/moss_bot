@@ -2,16 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { TelegramStreamReply, isNotModifiedError, splitChunks, StreamThrottle } from './stream';
 
 function fakeApi() {
-  const sent: string[] = [];
-  const edits: { id: number; text: string }[] = [];
+  const sent: { text: string; parseMode?: string }[] = [];
+  const edits: { id: number; text: string; parseMode?: string }[] = [];
   let nextId = 1;
   const api = {
-    async sendMessage(_chatId: string, text: string) {
-      sent.push(text);
+    async sendMessage(_chatId: string, text: string, opts?: { parse_mode?: string }) {
+      sent.push({ text, parseMode: opts?.parse_mode });
       return { message_id: nextId++ };
     },
-    async editMessageText(_chatId: string, id: number, text: string) {
-      edits.push({ id, text });
+    async editMessageText(
+      _chatId: string,
+      id: number,
+      text: string,
+      opts?: { parse_mode?: string },
+    ) {
+      edits.push({ id, text, parseMode: opts?.parse_mode });
     },
   };
   return { api, sent, edits };
@@ -57,13 +62,13 @@ describe('TelegramStreamReply', () => {
       minChars: 64,
     });
     await reply.append('Hel'); // 首条
-    expect(sent).toEqual(['Hel']);
+    expect(sent).toEqual([{ text: 'Hel', parseMode: 'Markdown' }]);
     now = 500;
     await reply.append('lo'); // 未到节流阈值
     expect(edits).toHaveLength(0);
     now = 1100;
     await reply.append('!');
-    expect(edits).toEqual([{ id: 1, text: 'Hello!' }]);
+    expect(edits).toEqual([{ id: 1, text: 'Hello!', parseMode: 'Markdown' }]);
   });
 
   it('finish 定稿全量内容', async () => {
@@ -80,7 +85,7 @@ describe('TelegramStreamReply', () => {
     const { api, sent } = fakeApi();
     const reply = new TelegramStreamReply(api, '1', silentLog, {});
     await reply.finish();
-    expect(sent).toEqual(['…']);
+    expect(sent).toEqual([{ text: '…', parseMode: 'Markdown' }]);
   });
 
   it('超长内容分段定稿续发', async () => {
@@ -112,7 +117,35 @@ describe('TelegramStreamReply', () => {
     const { api, sent } = fakeApi();
     const reply = new TelegramStreamReply(api, '1', silentLog, {});
     await reply.abort(new Error('boom'));
-    expect(sent[0]).toContain('生成中断');
+    expect(sent[0]?.text).toContain('生成中断');
+  });
+
+  it('markdown 被拒时同内容纯文本重发，且后续不再尝试 markdown', async () => {
+    let now = 0;
+    const rejectMarkdown = true;
+    const sent: { text: string; parseMode?: string }[] = [];
+    const edits: { text: string; parseMode?: string }[] = [];
+    let nextId = 1;
+    const api = {
+      async sendMessage(_chatId: string, text: string, opts?: { parse_mode?: string }) {
+        if (opts?.parse_mode && rejectMarkdown) throw new Error("400: can't parse entities");
+        sent.push({ text, parseMode: opts?.parse_mode });
+        return { message_id: nextId++ };
+      },
+      async editMessageText(_chatId: string, _id: number, text: string, opts?: { parse_mode?: string }) {
+        if (opts?.parse_mode && rejectMarkdown) throw new Error("400: can't parse entities");
+        edits.push({ text, parseMode: opts?.parse_mode });
+      },
+    };
+    const reply = new TelegramStreamReply(api, '1', silentLog, { now: () => now });
+    await reply.append('带*号的内容');
+    // 第一次 markdown 被拒 → 纯文本重发成功（各一次）
+    expect(sent).toEqual([{ text: '带*号的内容', parseMode: undefined }]);
+    now = 10_000;
+    await reply.finish();
+    // broken 置位后编辑直接纯文本，不再带 parse_mode
+    expect(edits).toEqual([{ text: '带*号的内容', parseMode: undefined }]);
+    expect(rejectMarkdown).toBe(true); // 根本没再试过 markdown
   });
 });
 

@@ -207,7 +207,7 @@ describe('parseCommand', () => {
 });
 
 describe('CommandRegistry', () => {
-  it('内置命令表暴露 8 个可见命令（/start 不可见）', () => {
+  it('内置命令表暴露 11 个可见命令（/start 不可见）', () => {
     const registry = new CommandRegistry(builtinCommands());
     const menu = registry
       .menu()
@@ -221,7 +221,10 @@ describe('CommandRegistry', () => {
       'model',
       'models',
       'remember',
+      'remind',
+      'reminders',
       'reset',
+      'unremind',
     ]);
   });
 });
@@ -377,7 +380,7 @@ describe('memory', () => {
     const { bot, calls } = makeDeps();
     await bot.handle(fakeMsg('你好').msg);
     const sys = String(calls[0]?.messages[0]?.content ?? '');
-    expect(sys).toContain('今天的日期是');
+    expect(sys).toContain('现在的本地时间是');
     expect(sys).toContain(`（周${'日一二三四五六'[new Date().getDay()]}）`);
   });
 
@@ -446,14 +449,26 @@ describe('/remember /memory /forget', () => {
     expect(state.replies.join('\n')).toContain('想让我记什么');
   });
 
-  it('菜单含 8 个可见命令', () => {
+  it('菜单含 11 个可见命令', () => {
     const registry = new CommandRegistry(builtinCommands());
     expect(
       registry
         .menu()
         .map((m) => m.name)
         .sort(),
-    ).toEqual(['compact', 'forget', 'help', 'memory', 'model', 'models', 'remember', 'reset']);
+    ).toEqual([
+      'compact',
+      'forget',
+      'help',
+      'memory',
+      'model',
+      'models',
+      'remember',
+      'remind',
+      'reminders',
+      'reset',
+      'unremind',
+    ]);
   });
 });
 
@@ -614,15 +629,15 @@ describe('工具调用循环', () => {
     ]);
   });
 
-  it('3 轮上限：第 4 次请求起不带 tools 强制作答', async () => {
+  it('5 轮上限：第 6 次请求起不带 tools 强制作答', async () => {
     const { bot, calls, sessions, setScript } = makeDeps(undefined, stubToolRunner('r'));
     const endless = (): StreamEvent[] => [toolCallEvent('c', '{"query":"q"}'), finish('tool_calls')];
-    setScript([endless(), endless(), endless()]);
+    setScript([endless(), endless(), endless(), endless(), endless()]);
     const { msg, state } = fakeMsg('搜');
     await bot.handle(msg);
-    expect(calls).toHaveLength(4); // 3 轮带 tools + 收尾 1 轮不带
-    expect(calls.slice(0, 3).every((c) => c.hasTools)).toBe(true);
-    expect(calls[3]?.hasTools).toBe(false);
+    expect(calls).toHaveLength(6); // 5 轮带 tools + 收尾 1 轮不带
+    expect(calls.slice(0, 5).every((c) => c.hasTools)).toBe(true);
+    expect(calls[5]?.hasTools).toBe(false);
     expect(state.finished).toBe(true);
     expect((await sessions.get('telegram', '1')).history).toHaveLength(2);
   });
@@ -691,7 +706,36 @@ describe('工具调用循环', () => {
     expect(calls[0]?.hasTools).toBe(false);
   });
 
-  it('冷却贯穿 bot：同一会话第二次搜索被冷却拦截', async () => {
+  it('冷却贯穿 bot：跨轮（两次用户消息）第二次搜索被冷却拦截', async () => {
+    const searchCalls: string[] = [];
+    const provider: SearchProvider = {
+      id: 'fake',
+      async search(query) {
+        searchCalls.push(query);
+        return [{ title: 'T', url: 'https://u', content: 'C' }];
+      },
+    };
+    let t = 0;
+    const tools = new ToolRunner([
+      createWebSearchTool({ provider, maxResults: 3, cooldownMinutes: 5, now: () => t }),
+    ]);
+    const { bot, calls, setScript } = makeDeps(undefined, tools);
+    setScript([
+      [toolCallEvent('c1', '{"query":"q1"}'), finish('tool_calls')],
+      [text('第一轮答完'), finish('stop')],
+      [toolCallEvent('c2', '{"query":"q2"}'), finish('tool_calls')],
+    ]);
+    await bot.handle(fakeMsg('搜一下').msg); // 第一轮：搜索成功
+    expect(searchCalls).toEqual(['q1']);
+    t += 1000;
+    await bot.handle(fakeMsg('再搜一下').msg); // 第二轮（新 turnId）→ 冷却拦截
+    expect(searchCalls).toEqual(['q1']); // 搜索源只被调一次
+    const cooldownMsg = calls[3]?.messages.at(-1) as { role: string; content: string };
+    expect(cooldownMsg?.role).toBe('tool');
+    expect(cooldownMsg?.content).toContain('冷却');
+  });
+
+  it('同轮 agent 连招：同一轮内第二次搜索放行', async () => {
     const searchCalls: string[] = [];
     const provider: SearchProvider = {
       id: 'fake',
@@ -709,11 +753,8 @@ describe('工具调用循环', () => {
       [toolCallEvent('c1', '{"query":"q1"}'), finish('tool_calls')],
       [toolCallEvent('c2', '{"query":"q2"}'), finish('tool_calls')],
     ]);
-    await bot.handle(fakeMsg('搜一下').msg);
-    expect(searchCalls).toEqual(['q1']); // 第二次被冷却拦截，搜索源只被调一次
-    const cooldownMsg = calls[2]?.messages.at(-1) as { role: string; content: string };
-    expect(cooldownMsg?.role).toBe('tool');
-    expect(cooldownMsg?.content).toContain('冷却');
+    await bot.handle(fakeMsg('搜两轮').msg); // 同一轮内连搜两次
+    expect(searchCalls).toEqual(['q1', 'q2']); // 都放行
     expect(calls).toHaveLength(3); // 两轮工具 + 收尾作答
   });
 

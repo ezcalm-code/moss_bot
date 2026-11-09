@@ -2,9 +2,19 @@ import type { StreamReplyHandle } from '../types';
 
 export const TELEGRAM_MESSAGE_MAX_LEN = 4000;
 
+export interface TelegramSendOpts {
+  /** legacy 方言：转义要求少；解析失败时由调用方降级纯文本重发 */
+  parse_mode?: 'Markdown';
+}
+
 export interface TelegramStreamApi {
-  sendMessage(chatId: string, text: string): Promise<{ message_id: number }>;
-  editMessageText(chatId: string, messageId: number, text: string): Promise<unknown>;
+  sendMessage(chatId: string, text: string, opts?: TelegramSendOpts): Promise<{ message_id: number }>;
+  editMessageText(
+    chatId: string,
+    messageId: number,
+    text: string,
+    opts?: TelegramSendOpts,
+  ): Promise<unknown>;
 }
 
 export interface TelegramStreamOptions {
@@ -74,6 +84,8 @@ export class TelegramStreamReply implements StreamReplyHandle {
   private buffer = '';
   private sealedLen = 0;
   private lastMessageId: number | undefined;
+  /** LLM 输出含未闭合 * / _ 等 Telegram 会拒收整条；置位后本条回复余下全部纯文本 */
+  private markdownBroken = false;
 
   constructor(
     private readonly api: TelegramStreamApi,
@@ -115,9 +127,9 @@ export class TelegramStreamReply implements StreamReplyHandle {
     const text = `生成中断：${err.message}`;
     try {
       if (this.lastMessageId === undefined) {
-        await this.api.sendMessage(this.chatId, text);
+        await this.sendMessageSafe(text);
       } else {
-        await this.api.editMessageText(this.chatId, this.lastMessageId, text);
+        await this.editSafe(text);
       }
     } catch (editErr) {
       this.log.warn({ err: editErr }, 'telegram abort 编辑失败');
@@ -129,13 +141,13 @@ export class TelegramStreamReply implements StreamReplyHandle {
       // 超出单条上限的完整段逐条定稿
       while (this.buffer.length - this.sealedLen > this.maxLen) {
         const chunk = this.buffer.slice(this.sealedLen, this.sealedLen + this.maxLen);
-        const sent = await this.api.sendMessage(this.chatId, chunk);
+        const sent = await this.sendMessageSafe(chunk);
         this.sealedLen += this.maxLen;
         this.lastMessageId = sent.message_id;
       }
       const rest = this.buffer.slice(this.sealedLen);
       if (this.lastMessageId === undefined) {
-        const sent = await this.api.sendMessage(this.chatId, rest || this.placeholder);
+        const sent = await this.sendMessageSafe(rest || this.placeholder);
         this.lastMessageId = sent.message_id;
         this.throttle.mark();
       } else {
@@ -150,13 +162,33 @@ export class TelegramStreamReply implements StreamReplyHandle {
     }
   }
 
-  private async editSafe(text: string): Promise<void> {
-    try {
-      if (this.lastMessageId === undefined) return;
-      await this.api.editMessageText(this.chatId, this.lastMessageId, text);
-    } catch (err) {
-      if (isNotModifiedError(err)) return;
-      throw err;
+  /** markdown 优先；被 Telegram 拒收（语法解析失败）则降级纯文本并记住，后续不再尝试 */
+  private async sendMessageSafe(text: string): Promise<{ message_id: number }> {
+    if (!this.markdownBroken) {
+      try {
+        return await this.api.sendMessage(this.chatId, text, { parse_mode: 'Markdown' });
+      } catch (err) {
+        this.markdownBroken = true;
+        this.log.warn({ err }, 'telegram markdown 发送被拒，本条回复降级为纯文本');
+      }
     }
+    return this.api.sendMessage(this.chatId, text);
+  }
+
+  private async editSafe(text: string): Promise<void> {
+    if (this.lastMessageId === undefined) return;
+    if (!this.markdownBroken) {
+      try {
+        await this.api.editMessageText(this.chatId, this.lastMessageId, text, {
+          parse_mode: 'Markdown',
+        });
+        return;
+      } catch (err) {
+        if (isNotModifiedError(err)) return;
+        this.markdownBroken = true;
+        this.log.warn({ err }, 'telegram markdown 编辑被拒，本条回复降级为纯文本');
+      }
+    }
+    await this.api.editMessageText(this.chatId, this.lastMessageId, text);
   }
 }

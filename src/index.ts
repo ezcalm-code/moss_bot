@@ -9,6 +9,9 @@ import { SessionManager } from './core/session';
 import { buildRegistry } from './llm/registry';
 import { createLogger } from './log';
 import { UserMemoryStore } from './memory/store';
+import { createReminderTool } from './reminders/reminder-tool';
+import { ReminderService } from './reminders/service';
+import { ReminderStore } from './reminders/store';
 import { createToolRunner } from './tools';
 import { FileSessionStore } from './stores/file';
 import { MemorySessionStore } from './stores/memory';
@@ -27,7 +30,10 @@ async function main(): Promise<void> {
   const proxyDispatcher = getProxyDispatcher();
 
   const registry = buildRegistry(config, proxyDispatcher);
-  const tools = createToolRunner(config.tools, proxyDispatcher);
+  const reminders = new ReminderService(new ReminderStore(join('data', 'reminders'), log), log);
+  const tools = createToolRunner(config.tools, proxyDispatcher, [
+    createReminderTool({ service: reminders }),
+  ]);
   const store =
     config.session.store === 'file'
       ? new FileSessionStore(join('data', 'sessions'), log)
@@ -42,6 +48,7 @@ async function main(): Promise<void> {
     log,
     memory,
     tools,
+    reminders,
   });
 
   const adapters: PlatformAdapter[] = [];
@@ -74,6 +81,7 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     log.info({ signal }, '收到停机信号，优雅关闭中');
+    reminders.stop();
     void Promise.all(
       adapters.map(async (a) => {
         try {
@@ -107,6 +115,15 @@ async function main(): Promise<void> {
   }
 
   await Promise.all(adapters.map((a) => a.start()));
+  // 提醒投递路由到对应平台；平台未启用时丢弃并留痕（该会话在当前部署不可达）
+  reminders.start(async (platform, chatId, text) => {
+    const adapter = adapters.find((a) => a.id === platform);
+    if (!adapter) {
+      log.warn({ platform, chatId }, '提醒目标平台未启用，丢弃该提醒');
+      return;
+    }
+    await adapter.sendTo(chatId, text);
+  });
   log.info(
     { version: VERSION, platforms: adapters.map((a) => a.id), defaultModel: registry.defaultAlias },
     `moss-bots v${VERSION} 已启动`,

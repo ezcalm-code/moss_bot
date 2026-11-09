@@ -99,6 +99,11 @@ export class FeishuAdapter implements PlatformAdapter {
     await this.ws?.close();
   }
 
+  /** 主动推送（定时提醒）：文本消息不依赖收件事件，与 reply 同一条发送通道 */
+  async sendTo(chatId: string, text: string): Promise<void> {
+    await this.makeCardApi().sendTextMessage(chatId, text);
+  }
+
   private async onEvent(data: unknown) {
     if (!data) return;
     const rawMessage = (data as { message?: Record<string, unknown> }).message ?? {};

@@ -8,7 +8,9 @@ const ctx: ToolContext = {
   platform: 'telegram',
   chatId: 'c',
   senderId: 'u',
+  senderName: 'U',
   isGroup: false,
+  turnId: 't1',
   log,
 };
 
