@@ -1,22 +1,34 @@
-// 验证 OpenAI 兼容网关是否透传 tools 参数（方案B硬前提，网关升级后可复跑）
-// 用法: node scripts/probe-aicloud-tools.mjs   （读取仓库根 .env 的 AICLOUD_API_KEY）
+// 验证 OpenAI 兼容网关是否透传 tools 参数（function calling 硬前提，网关/模型升级后可复跑）
+// 用法: node scripts/probe-gateway-tools.mjs [alias]
+//   读 config.yaml（路径可用 MOSS_CONFIG 覆盖）的模型条目：端点/model 取自配置，key 取自 .env
+//   默认探测 models.default；传 alias 可探测其他条目
 import { readFileSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
 
-const env = {};
-for (const line of readFileSync(new URL('../.env', import.meta.url), 'utf8').split(/\r?\n/)) {
-  const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-  if (m && !line.trim().startsWith('#')) {
-    env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
-  }
+try {
+  process.loadEnvFile('.env');
+} catch {
+  // .env 不存在时依赖外部环境变量
 }
-const key = env.AICLOUD_API_KEY;
-if (!key) {
-  console.error('未找到 AICLOUD_API_KEY');
+
+const configPath = process.env.MOSS_CONFIG ?? 'config.yaml';
+const cfg = parseYaml(readFileSync(configPath, 'utf8'));
+const alias = process.argv[2] ?? cfg.models?.default ?? cfg.models?.entries?.[0]?.alias;
+const entry = cfg.models?.entries?.find((e) => e.alias === alias);
+if (!entry) {
+  console.error(`配置中不存在模型 alias: ${alias}`);
   process.exit(1);
 }
+const provider = cfg.providers?.[entry.provider];
+const key = process.env[provider?.apiKeyEnv ?? ''];
+if (!provider?.baseUrl || !key) {
+  console.error(`模型 "${alias}" 的 provider 缺少 baseUrl 或 API key（env: ${provider?.apiKeyEnv}）`);
+  process.exit(1);
+}
+const base = provider.baseUrl.replace(/\/+$/, '');
+const model = entry.model;
+console.log(`探测目标: ${base}  模型: ${model}`);
 
-const base = 'https://aicloud-api.jdocloud.com/v1';
-const model = 'glm/glm-5.3-flash';
 const tools = [
   {
     type: 'function',

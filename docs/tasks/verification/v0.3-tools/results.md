@@ -1,6 +1,6 @@
 # v0.3 工具框架（web_search 联网搜索）验证记录
 
-日期：2026-11-09 · 分支 main · 前置：`scripts/probe-aicloud-tools.mjs` 4/4 PASS（网关 tools 透传）
+日期：2026-11-09 · 分支 main · 前置：`scripts/probe-gateway-tools.mjs` 4/4 PASS（内部 OpenAI 兼容网关 tools 透传）
 
 ## 单测（npm test，150 全绿，含新增 ~40 用例）
 
@@ -15,7 +15,7 @@
 
 红灯验证：tavily.ts 的 `await opts.fetch ? :` 优先级 bug 由 tavily.test.ts 首轮全红抓出（res.text is not a function），修复后转绿；bot.ts 降级分支首版 `consumeRound` 作用域错误由「首轮 4xx 降级」用例抓出，修复后转绿。
 
-## REPL 真机实测（aicloud glm/glm-5.3-flash，2026-11-09）
+## REPL 真机实测（内部 OpenAI 兼容网关默认模型，2026-11-09）
 
 | 场景 | 输入 | 实际结果 |
 |---|---|---|

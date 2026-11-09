@@ -35,7 +35,11 @@
 - [x] 方案 B 实施：工具框架 + web_search（Tavily）+ 5 分钟冷却 + supportsTools 能力位（2026-11-09，150 测试全绿，REPL 三场景实测，9e27f4d）
   - 证据：[v0.3-tools/results.md](verification/v0.3-tools/results.md)
   - 教训：⑮ `const res = await opts.fetch ? a() : b()` 的 await 只作用于条件本身，res 拿到的是未 await 的 Promise——ternary 里的副作用调用必须整体先赋值再 await（tavily.test.ts 首轮全红抓出）
-- [ ] 待用户：注册 TAVILY_API_KEY（tavily.com 免费档）→ 搜索成功路径 + TG/飞书真机验收
+- [x] 真实 Tavily key 就位：REPL 搜索成功路径实测 PASS（当日真实新闻 + 细节，0 失败），bot 重启生效
+- [x] 脱敏返工（用户提醒）：探测脚本写死内部网关域名随 9e27f4d 推送——脚本重写为从 config.yaml 动态读端点/model（改名 probe-gateway-tools.mjs），验证文档抹掉内部 provider 别名/模型串。
+  教训：⑯ **脱敏清单要覆盖所有新增文件类型**——这次是 `scripts/`（上次是配置 bak，教训⑩同类）：临时/探测脚本天然会写死内部端点，入库前按「示例配置」同一标准过一遍；
+  ⑪ 同样适用：旧提交 9e27f4d 的 blob 仍含域名，彻底清除需用户拍板历史重写
+- [ ] TG/飞书真机验收：群/私聊各发时效问题 + 连续两次验冷却措辞 + 流式占位体验
 
 ## 审查段
 
