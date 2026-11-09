@@ -473,3 +473,24 @@ describe('vision（图片理解）', () => {
     expect(state.aborted?.message).not.toContain('不支持');
   });
 });
+
+describe('vision 回复取图', () => {
+  it('回复图片消息（本条纯文字）也能取到被回复的图', async () => {
+    const { bot, calls } = makeDeps();
+    const { msg } = fakeMsg('这是什么', {
+      dataUrls: ['data:image/jpeg;base64,aGVsbG8='], // 适配器反查被回复消息后返回图片
+    });
+    await bot.handle(msg);
+    const sent = calls[0]?.messages.at(-1)?.content;
+    expect(Array.isArray(sent)).toBe(true); // 多模态请求发出
+    const parts = sent as { type: string }[];
+    expect(parts.some((p) => p.type === 'image_url')).toBe(true);
+  });
+
+  it('无图纯文字时 getAttachmentDataUrls 也被调用但不影响文本流程', async () => {
+    const { bot, calls } = makeDeps();
+    await bot.handle(fakeMsg('你好').msg);
+    const sent = calls[0]?.messages.at(-1)?.content;
+    expect(sent).toBe('你好'); // 纯文本形态
+  });
+});

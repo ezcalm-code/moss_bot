@@ -42,7 +42,16 @@ export class BotCore {
 
   async handle(msg: IncomingMessage): Promise<void> {
     try {
-      if (!msg.isTargeted) return;
+      if (!msg.isTargeted) {
+        // 群聊里发图无法 @bot（图片消息本身不带文字与 @），这是最常见的静默丢弃点，留痕便于排查
+        if (msg.attachments.some((a) => a.type === 'image')) {
+          this.log.info(
+            { platform: msg.platform, chatId: msg.chatId, senderId: msg.senderId },
+            '群聊图片消息未 @bot，已忽略（如需识别请在群里回复该图并 @bot）',
+          );
+        }
+        return;
+      }
       const text = msg.text.trim();
       const hasImage = msg.attachments.some((a) => a.type === 'image');
       const hasOtherAttachments = msg.attachments.length > (hasImage ? 1 : 0);
@@ -69,7 +78,7 @@ export class BotCore {
           return;
         }
       }
-      await this.chat(msg, text, hasImage);
+      await this.chat(msg, text);
     } catch (err) {
       this.log.error({ err, platform: msg.platform, chatId: msg.chatId }, '处理消息失败');
       try {
@@ -80,13 +89,14 @@ export class BotCore {
     }
   }
 
-  private async chat(msg: IncomingMessage, text: string, hasImage: boolean): Promise<void> {
+  private async chat(msg: IncomingMessage, text: string): Promise<void> {
     const { registry, sessions } = this.deps;
     const session = await sessions.get(msg.platform, msg.chatId);
 
-    let dataUrls: string[] = [];
-    if (hasImage) {
-      dataUrls = await msg.getAttachmentDataUrls();
+    // 无条件探测图片：本条带图、或回复了图片消息（图在被回复消息里）都由此取到；
+    // 无图时实现返回空数组，代价极小
+    const dataUrls = await msg.getAttachmentDataUrls();
+    if (dataUrls.length > 0) {
       const model = registry.entryFor(session.modelAlias).model;
       if (registry.isVisionBlocked(model)) {
         await msg.reply(texts.noVision(registry.listAliases()));
