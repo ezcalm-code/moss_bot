@@ -2,7 +2,7 @@ import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import type { ToolContext } from '../types';
 import { createWebSearchTool } from './index';
-import type { SearchProvider, SearchResult } from './tavily';
+import { TavilyHttpError, type SearchProvider, type SearchResult } from './tavily';
 
 const log = pino({ level: 'silent' });
 
@@ -69,21 +69,43 @@ describe('createWebSearchTool', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('provider 抛错时返回失败说明，且冷却窗口已被烧掉', async () => {
+  it('HTTP 失败（可能已计费）烧冷却窗口', async () => {
     let t = 0;
-    const failing: SearchProvider = {
+    let n = 0;
+    const httpFail: SearchProvider = {
       id: 'bad',
       async search() {
-        throw new Error('network down');
+        n++;
+        throw new TavilyHttpError(429, 'Tavily HTTP 429: rate limited');
       },
     };
-    const tool = makeTool(failing, () => t);
+    const tool = makeTool(httpFail, () => t);
     const out = await tool.exec({ query: 'q' }, ctxOf());
     expect(out).toContain('web_search 执行失败');
-    expect(out).toContain('network down');
+    expect(out).toContain('429');
     t += 1000;
     const out2 = await tool.exec({ query: 'q' }, ctxOf());
-    expect(out2).toContain('冷却');
+    expect(out2).toContain('冷却'); // 已烧窗
+    expect(n).toBe(1);
+  });
+
+  it('连接层失败（超时/DNS）未计费，回滚冷却窗允许立即重试', async () => {
+    let t = 0;
+    let n = 0;
+    const flaky: SearchProvider = {
+      id: 'flaky',
+      async search() {
+        n++;
+        if (n === 1) throw new TypeError('fetch failed: Connect Timeout Error');
+        return [{ title: 'A', url: 'https://a', content: 'x' }];
+      },
+    };
+    const tool = makeTool(flaky, () => t);
+    const out = await tool.exec({ query: 'q' }, ctxOf());
+    expect(out).toContain('网络未连通');
+    const out2 = await tool.exec({ query: 'q' }, ctxOf()); // 立即重试放行
+    expect(out2).toContain('[1] A');
+    expect(n).toBe(2);
   });
 
   it('query 缺失或为空返回参数错误，provider 不被调', async () => {

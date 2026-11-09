@@ -1,5 +1,5 @@
 import type { ToolSpec } from '../types';
-import type { SearchProvider } from './tavily';
+import { TavilyHttpError, type SearchProvider } from './tavily';
 
 /** 单条结果 content 截断，防搜索结果撑爆小上下文模型 */
 const MAX_RESULT_CONTENT_CHARS = 500;
@@ -83,7 +83,13 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
           .join('\n\n');
       } catch (err) {
         ctx.log.warn({ err, query }, 'web_search 执行失败');
-        return `web_search 执行失败：${err instanceof Error ? err.message : String(err)}。请基于已有知识回答，并告知用户搜索暂时不可用。`;
+        // 到达服务的失败（HTTP 4xx/5xx）可能已计费，烧冷却窗；连接层失败（超时/DNS）未计费，
+        // 回滚窗口让模型可以立即重试，否则一次网络抖动就让用户 5 分钟搜不了
+        if (err instanceof TavilyHttpError) {
+          return `web_search 执行失败：${err.message}。请基于已有知识回答，并告知用户搜索暂时不可用。`;
+        }
+        lastUsed.delete(key);
+        return `web_search 执行失败（网络未连通）：${err instanceof Error ? err.message : String(err)}。可稍等片刻重试一次；仍失败则基于已有知识回答，并告知用户网络暂不可用。`;
       }
     },
   };

@@ -25,6 +25,16 @@ export interface TavilyOptions {
   dispatcher?: Dispatcher;
 }
 
+/** 请求已到达 Tavily 且被 HTTP 拒绝；与连接层失败（超时/DNS，未计费）区分开 */
+export class TavilyHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export function createTavilyProvider(opts: TavilyOptions): SearchProvider {
   const base = opts.baseUrl ?? 'https://api.tavily.com';
   return {
@@ -87,7 +97,7 @@ async function tavilyPost(
   const res = await doFetch(`${base}${path}`, init);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Tavily HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new TavilyHttpError(res.status, `Tavily HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
   return JSON.parse(text);
 }
