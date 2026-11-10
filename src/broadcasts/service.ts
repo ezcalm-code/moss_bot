@@ -39,17 +39,24 @@ export class BroadcastService {
     private readonly log: Logger,
   ) {}
 
-  add(input: { platform: PlatformId; chatId: string; query: string; time: string }): Broadcast {
+  add(
+    input: { platform: PlatformId; chatId: string; query: string; time: string },
+    nowMs = Date.now(),
+  ): Broadcast {
     if (!isValidBroadcastTime(input.time)) {
       throw new Error('时间格式不对，请用 HH:MM（如 09:00）');
     }
     const time = normalizeBroadcastTime(input.time);
+    const nowWall = zonedNow(this.timezone, nowMs);
+    const nowHHMM = `${pad(nowWall.hour)}:${pad(nowWall.minute)}`;
     const broadcast: Broadcast = {
       id: randomUUID().slice(0, 8),
       platform: input.platform,
       chatId: input.chatId,
       time,
       query: input.query.trim(),
+      // 今天的时刻已过则标记今日已处理：首次推送落在下一次准点，而不是设置完立刻补发今天
+      lastFiredDay: time <= nowHHMM ? dayStringInTz(this.timezone, nowMs) : undefined,
     };
     if (!broadcast.query) throw new Error('播报内容（query）不能为空');
     const list = this.store.load();

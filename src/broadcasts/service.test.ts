@@ -42,6 +42,43 @@ describe('BroadcastService', () => {
     expect(() => svc.add({ platform: 'telegram', chatId: 'c1', query: 'x', time: '25:00' })).toThrow(/HH:MM/);
   });
 
+  it('当天时刻已过的新播报标记今日已处理，不立即补发（首次推送在下一次准点）', async () => {
+    const svc = makeService();
+    const created = new Date(2026, 10, 9, 9, 30).getTime(); // 本地 09:30 设「每天 09:00」（时刻已过）
+    svc.add({ platform: 'telegram', chatId: 'c1', query: 'q', time: '09:00' }, created);
+    let generated = 0;
+    const generate: BroadcastGenerate = async () => {
+      generated++;
+      return '摘要';
+    };
+    const sent: string[] = [];
+    const dispatch: BroadcastDispatch = async (_p, _c, text) => {
+      sent.push(text);
+    };
+    await svc.scanOnce(new Date(2026, 10, 9, 9, 35).getTime(), dispatch, generate);
+    expect(generated).toBe(0); // 今天不再补发
+    // 次日到点正常触发
+    await svc.scanOnce(new Date(2026, 10, 10, 9, 30).getTime(), dispatch, generate);
+    expect(generated).toBe(1);
+  });
+
+  it('当天时刻未过的新播报当天照常触发', async () => {
+    const svc = makeService();
+    const created = new Date(2026, 10, 9, 9, 30).getTime(); // 本地 09:30 设「每天 18:00」（未到）
+    svc.add({ platform: 'telegram', chatId: 'c1', query: 'q', time: '18:00' }, created);
+    let generated = 0;
+    const generate: BroadcastGenerate = async () => {
+      generated++;
+      return '摘要';
+    };
+    const sent: string[] = [];
+    const dispatch: BroadcastDispatch = async (_p, _c, text) => {
+      sent.push(text);
+    };
+    await svc.scanOnce(new Date(2026, 10, 9, 18, 30).getTime(), dispatch, generate);
+    expect(generated).toBe(1); // 当天准点触发
+  });
+
   it('到点触发生成与推送，当日去重', async () => {
     const svc = makeService();
     svc.add({ platform: 'telegram', chatId: 'c1', query: 'AI新闻', time: '09:00' });
