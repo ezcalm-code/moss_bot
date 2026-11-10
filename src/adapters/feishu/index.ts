@@ -118,14 +118,26 @@ export class FeishuAdapter implements PlatformAdapter {
       throw new Error(`生成图下载失败: HTTP ${res.status}`);
     }
     const buf = Buffer.from(await res.arrayBuffer());
-    const uploaded = await this.client.im.v1.image.create({
-      data: { image_type: 'message', image: buf },
-    });
-    const imageKey = uploaded?.image_key;
-    if (!imageKey) {
-      throw new Error('飞书图片上传未返回 image_key');
+    try {
+      const uploaded = await this.client.im.v1.image.create({
+        data: { image_type: 'message', image: buf },
+      });
+      const imageKey = uploaded?.image_key;
+      if (!imageKey) {
+        throw new Error('飞书图片上传未返回 image_key');
+      }
+      await this.makeCardApi().sendMessage(chatId, 'image', JSON.stringify({ image_key: imageKey }));
+    } catch (err) {
+      // SDK 的 axios 错误不带响应体：补上服务端 msg（如权限 99991672 的 scope 清单），否则只能看到裸 400
+      const respData = (
+        err as { response?: { data?: { msg?: string; error?: { message?: string } } } }
+      )?.response?.data;
+      const detail = respData?.error?.message ?? respData?.msg;
+      if (detail) {
+        throw new Error(`${(err as Error).message} — ${detail}`);
+      }
+      throw err;
     }
-    await this.makeCardApi().sendMessage(chatId, 'image', JSON.stringify({ image_key: imageKey }));
   }
 
   /** 发送投票卡片（按钮 value 携带 poll_id 与 option_idx，点击经 cardDispatcher 回来） */
