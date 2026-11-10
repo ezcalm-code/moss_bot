@@ -18,6 +18,9 @@ import { ReminderStore } from './reminders/store';
 import { BroadcastService, type BroadcastGenerate } from './broadcasts/service';
 import { BroadcastStore } from './broadcasts/store';
 import { createScheduleBroadcastTool } from './broadcasts/broadcast-tool';
+import { createImageProvider } from './images';
+import { createGenerateImageTool } from './images/image-tool';
+import { ImageService } from './images/service';
 import { createSearchProvider, createToolRunner } from './tools';
 import { PollsService } from './polls/service';
 import { createCreatePollTool } from './polls/poll-tool';
@@ -71,11 +74,17 @@ async function main(): Promise<void> {
     ]);
   };
   const polls = new PollsService(log);
+  // 生图：未启用或未配置 key 时整体不装配（REPL 无发图通道，repl.ts 不装配）
+  const imageProvider = createImageProvider(config.imageGeneration, proxyDispatcher);
+  const images = imageProvider
+    ? new ImageService(imageProvider, config.imageGeneration.cooldownMinutes, log)
+    : undefined;
   const tools = createToolRunner(config.tools, proxyDispatcher, [
     createReminderTool({ service: reminders }),
     ...(notes ? [createAddNoteTool({ service: notes })] : []),
     ...(broadcasts ? [createScheduleBroadcastTool({ service: broadcasts })] : []),
     createCreatePollTool({ service: polls }),
+    ...(images ? [createGenerateImageTool({ service: images })] : []),
   ]);
   const store =
     config.session.store === 'file'
@@ -184,6 +193,17 @@ async function main(): Promise<void> {
         (adapter as FeishuAdapter).sendPollCard(chatId, pollId, question, options),
       );
     }
+  }
+  for (const adapter of adapters) {
+    images?.registerSender(adapter.id, (chatId, image) => {
+      if (adapter.id === 'telegram') {
+        return (adapter as TelegramAdapter).sendImage(chatId, image.url);
+      }
+      if (adapter.id === 'feishu') {
+        return (adapter as FeishuAdapter).sendImage(chatId, image);
+      }
+      return Promise.resolve();
+    });
   }
 
   if (broadcasts) {

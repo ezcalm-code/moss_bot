@@ -12,6 +12,7 @@ function fakeCardApi() {
     nextCardId: 1,
   };
   const api: FeishuCardApi = {
+    async sendMessage(_chatId, _msgType, _content) {},
     async createCard(cardJson) {
       if (state.failCreate) throw new Error('create failed');
       state.cards.push(cardJson);

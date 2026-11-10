@@ -1,3 +1,4 @@
+import { ChatCooldown } from '../cooldown';
 import type { ToolSpec } from '../types';
 import { TavilyHttpError, type SearchProvider } from './tavily';
 
@@ -24,9 +25,8 @@ export interface WebSearchToolOptions {
  * 同一轮（turnId 相同）的 agent 连招放行——搜→读→再搜是合法组合，不该被冷却腰斩。
  */
 export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
-  const cooldownMs = opts.cooldownMinutes * 60_000;
   const now = opts.now ?? Date.now;
-  const lastUsed = new Map<string, { t: number; turnId: string }>();
+  const cooldown = new ChatCooldown(opts.cooldownMinutes * 60_000, now);
 
   return {
     name: 'web_search',
@@ -47,19 +47,15 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
       }
 
       const key = `${ctx.platform}:${ctx.chatId}`;
-      for (const [k, v] of lastUsed) {
-        if (now() - v.t >= cooldownMs) lastUsed.delete(k);
-      }
-      const last = lastUsed.get(key);
-      if (last !== undefined && last.turnId !== ctx.turnId && now() - last.t < cooldownMs) {
-        const remainSec = Math.ceil((cooldownMs - (now() - last.t)) / 1000);
+      const remainSec = cooldown.check(key, ctx.turnId);
+      if (remainSec !== undefined) {
         ctx.log.info({ platform: ctx.platform, chatId: ctx.chatId, remainSec }, 'web_search 冷却命中');
         return (
           `web_search 处于冷却中：本会话距上次搜索不足 ${opts.cooldownMinutes} 分钟，剩余约 ${remainSec} 秒。` +
           '请告知用户稍后再试，或直接基于已有知识回答。'
         );
       }
-      lastUsed.set(key, { t: now(), turnId: ctx.turnId });
+      cooldown.mark(key, ctx.turnId);
 
       const started = Date.now();
       try {
@@ -88,7 +84,7 @@ export function createWebSearchTool(opts: WebSearchToolOptions): ToolSpec {
         if (err instanceof TavilyHttpError) {
           return `web_search 执行失败：${err.message}。请基于已有知识回答，并告知用户搜索暂时不可用。`;
         }
-        lastUsed.delete(key);
+        cooldown.release(key);
         return `web_search 执行失败（网络未连通）：${err instanceof Error ? err.message : String(err)}。可稍等片刻重试一次；仍失败则基于已有知识回答，并告知用户网络暂不可用。`;
       }
     },

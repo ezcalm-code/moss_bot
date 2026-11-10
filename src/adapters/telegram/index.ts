@@ -109,6 +109,11 @@ export class TelegramAdapter implements PlatformAdapter {
     await this.grammy.api.sendPoll(chatId, question, options, { is_anonymous: false });
   }
 
+  /** 发送图片（公开直链由 Telegram 服务端自行拉取） */
+  async sendImage(chatId: string, url: string): Promise<void> {
+    await this.grammy.api.sendPhoto(chatId, url);
+  }
+
   async registerCommands(
     commands: readonly { name: string; description: string }[],
   ): Promise<void> {

@@ -111,6 +111,23 @@ export class FeishuAdapter implements PlatformAdapter {
     await this.makeCardApi().sendTextMessage(chatId, text);
   }
 
+  /** 生成图投递：下载直链字节 → 上传飞书素材 → 发图片消息 */
+  async sendImage(chatId: string, image: { url: string }): Promise<void> {
+    const res = await fetch(image.url);
+    if (!res.ok) {
+      throw new Error(`生成图下载失败: HTTP ${res.status}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    const uploaded = await this.client.im.v1.image.create({
+      data: { image_type: 'message', image: buf },
+    });
+    const imageKey = uploaded?.image_key;
+    if (!imageKey) {
+      throw new Error('飞书图片上传未返回 image_key');
+    }
+    await this.makeCardApi().sendMessage(chatId, 'image', JSON.stringify({ image_key: imageKey }));
+  }
+
   /** 发送投票卡片（按钮 value 携带 poll_id 与 option_idx，点击经 cardDispatcher 回来） */
   async sendPollCard(
     chatId: string,
@@ -271,6 +288,7 @@ export class FeishuAdapter implements PlatformAdapter {
       }
     };
     return {
+      sendMessage,
       createCard: async (cardJson) => {
         const res = await this.client.cardkit.v1.card.create({
           data: { type: 'card_json', data: cardJson },

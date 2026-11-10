@@ -39,6 +39,12 @@ session:
 memory:
   enabled: true # 跨会话用户记忆（画像存 data/memory/，/forget 可清除）
 
+imageGeneration:
+  enabled: false # 打开后模型可自主调用 generate_image 生图并发送到会话
+  provider: zhipu # 生图源（当前支持: zhipu；CogView-3-Flash 免费档）
+  apiKeyEnv: ZHIPU_IMAGE_API_KEY # bigmodel.cn 免费注册
+  cooldownMinutes: 10 # 同一会话生图冷却（生图比搜索贵，默认更严）
+
 tools:
   webSearch:
     enabled: false # 打开后模型可自主调用 web_search（联网搜索）与 read_url（读用户发的链接）

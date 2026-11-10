@@ -69,6 +69,14 @@ export const configSchema = z.object({
       streaming: true,
     }),
   memory: z.object({ enabled: z.boolean() }).prefault({ enabled: true }),
+  imageGeneration: z
+    .object({
+      enabled: z.boolean().default(false),
+      provider: z.string().min(1).default('zhipu'),
+      apiKeyEnv: z.string().min(1).default('ZHIPU_IMAGE_API_KEY'),
+      cooldownMinutes: z.number().min(0).default(10),
+    })
+    .prefault({ enabled: false, provider: 'zhipu', apiKeyEnv: 'ZHIPU_IMAGE_API_KEY', cooldownMinutes: 10 }),
   tools: z
     .object({
       webSearch: z
@@ -122,6 +130,13 @@ export interface ResolvedConfig {
   memory: { enabled: boolean };
   /** IANA 时区；undefined = 进程本地 */
   timezone?: string;
+  imageGeneration: {
+    enabled: boolean;
+    provider: string;
+    apiKeyEnv: string;
+    apiKey: string | undefined;
+    cooldownMinutes: number;
+  };
   tools: {
     webSearch: {
       enabled: boolean;

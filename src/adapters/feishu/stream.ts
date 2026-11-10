@@ -2,6 +2,8 @@ import type { StreamReplyHandle } from '../types';
 import { buildStreamingCard } from './normalize';
 
 export interface FeishuCardApi {
+  /** 通用消息发送：msg_type = text | image | interactive（content 为对应 JSON 串） */
+  sendMessage(chatId: string, msgType: string, content: string): Promise<void>;
   /** 创建卡片实体，返回 card_id */
   createCard(cardJson: string): Promise<string>;
   /** 发送引用卡片实体的消息 */

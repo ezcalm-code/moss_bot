@@ -89,6 +89,17 @@ Record 类型，key 为 provider id。
 
 笔记入口：自然语言「帮我记个笔记：xxx」（工具 `add_note`）、`/notes` 列出自己的笔记、`/delnote <id>` 删除。笔记按用户隔离，互相看不到。
 
+### imageGeneration
+
+| 字段                | 类型   | 默认                   | 说明                                                       |
+| ------------------- | ------ | ---------------------- | ---------------------------------------------------------- |
+| enabled             | bool   | `false`                | 打开后模型可自主调用 generate_image 生图并发送到会话        |
+| provider            | string | `zhipu`                | 生图源（当前支持: zhipu；CogView-3-Flash 免费档）           |
+| apiKeyEnv           | string | `ZHIPU_IMAGE_API_KEY`  | bigmodel.cn 免费注册                                        |
+| cooldownMinutes     | number | `10`                   | 同一会话生图冷却（生图比搜索贵，同轮多次也冷却）            |
+
+入口：自然语言「画一只戴墨镜的猫」。生成图为公开直链：TG 由 Telegram 服务端直接拉取；飞书下载字节后走图片素材上传发送。
+
 ### tools
 
 | 字段                          | 类型    | 默认     | 说明                                     |

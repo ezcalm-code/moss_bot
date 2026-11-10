@@ -65,6 +65,12 @@ export function resolveConfig(
   if (cfg.timezone !== undefined && !isValidTimezone(cfg.timezone)) {
     throw new ConfigError(`timezone "${cfg.timezone}" 不是合法的 IANA 时区名（如 Asia/Shanghai）`);
   }
+  const imageKey = options.env[cfg.imageGeneration.apiKeyEnv];
+  if (cfg.imageGeneration.enabled && !imageKey) {
+    throw new ConfigError(
+      `imageGeneration.enabled=true 但环境变量 ${cfg.imageGeneration.apiKeyEnv} 为空`,
+    );
+  }
   const duplicate = aliases.find((a, i) => aliases.indexOf(a) !== i);
   if (duplicate !== undefined) {
     throw new ConfigError(`models.entries 存在重复 alias: ${duplicate}`);
@@ -135,6 +141,13 @@ export function resolveConfig(
     },
     memory: cfg.memory,
     timezone: cfg.timezone,
+    imageGeneration: {
+      enabled: cfg.imageGeneration.enabled,
+      provider: cfg.imageGeneration.provider,
+      apiKeyEnv: cfg.imageGeneration.apiKeyEnv,
+      apiKey: imageKey,
+      cooldownMinutes: cfg.imageGeneration.cooldownMinutes,
+    },
     tools: {
       webSearch: {
         enabled: ws.enabled,
