@@ -46,7 +46,7 @@
 - [x] v0.4 主体（2026-11-09，e052e9a，180 测试全绿）：定时提醒（自然语言工具+/remind 命令+持久化+重启补投+双平台 sendTo）、TG Markdown 渲染（400 降级纯文本）、同轮搜索放行+轮数上限 5
   - 证据：[v0.4-reminders/results.md](verification/v0.4-reminders/results.md)
   - 教训：⑰ REPL 退出被 pino-pretty worker 挂住——exitCode 软退出永不生效、stdout 回调式退出在 /dev/null 下不触发，进程曾存活到提醒到期把它投进 /dev/null（「补投无打印」假象的根源）；解法是普通 timer 兜底硬退。⑯ 同源提醒：**验证时要核对进程真的退了**，盘上状态变化可能是别的存活进程干的
-- [ ] v0.4 真机验收（用户）：TG/飞书设 2 分钟提醒收推送、TG Markdown 排版与降级、连招复验
+- [x] v0.4 真机验收通过（2026-11-10，日志核验）：双平台提醒到点推送、TG Markdown 400 降级兜住、同轮连招四连零拦截——证据补入 results.md 真机验收小节
 - [ ] 挂账：AC3.3 TG 群聊超长回复分段、群刷屏丢弃真机触发、desktop 分支合并决策
 - [x] CI 失败结案（2026-11-10）：8c86fcb 失败于 npm run lint（prefer-const，修复在 e052e9a）；其后 c0335ff 失败于 typecheck——v0.4 提交漏 add 了 src/tools/index.test.ts 的 ToolContext fixture 修复（本地绿 CI 红的根因），补提交 404f665 后 CI 全绿
   - 教训：⑱ **本地三检全绿 ≠ 提交内容三检全绿**——逐文件 git add 时漏掉一个测试文件，本地修复没进提交树；提交后跑一次 `git status --short` 确认零残留，或直接以提交树为准重跑三检
