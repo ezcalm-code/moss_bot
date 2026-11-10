@@ -11,4 +11,6 @@ export const texts = {
     `未知模型 "${alias}"。可用模型: ${available.join(', ')}`,
   reset: '已清空当前会话的对话历史。',
   internalError: '出了点问题，请稍后再试。',
+  /** 被 @ / 回复但剥掉 @ 后没有内容：回一句轻量搭话，避免装死 */
+  emptyMention: '在的在的——想说什么直接说～',
 };

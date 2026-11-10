@@ -280,6 +280,13 @@ describe('/compact', () => {
 });
 
 describe('BotCore', () => {
+  it('targeted 空文本（只 @ / 只回复没正文）回轻量搭话不装死', async () => {
+    const { bot } = makeDeps();
+    const { msg, state } = fakeMsg('', { isGroup: true, isTargeted: true });
+    await bot.handle(msg);
+    expect(state.replies.join('\n')).toContain('在的在的');
+  });
+
   it('群聊非 targeted 消息被忽略', async () => {
     const { bot } = makeDeps();
     const { msg, state } = fakeMsg('hello', { isGroup: true, isTargeted: false });

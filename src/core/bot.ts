@@ -119,6 +119,9 @@ export class BotCore {
       if (!text && !hasImage) {
         if (msg.attachments.length > 0) {
           await msg.reply(texts.unsupportedAttachment);
+        } else if (msg.isTargeted) {
+          // 被 @ / 回复但剥掉 @ 后没内容：回轻量搭话而不是装死（用户会以为 bot 挂了）
+          await msg.reply(texts.emptyMention);
         }
         return;
       }
