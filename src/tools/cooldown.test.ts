@@ -3,7 +3,7 @@ import { ChatCooldown } from './cooldown';
 
 describe('ChatCooldown', () => {
   it('mark 后同 key 冷却命中（返回剩余秒），跨 turnId 放行', () => {
-    let t = 0;
+    const t = 0;
     const cd = new ChatCooldown(300_000, () => t);
     cd.mark('tg:c1', 'turn-a', t);
     expect(cd.check('tg:c1', 'turn-b', t + 1000)).toBe(299); // 跨轮冷却
@@ -13,7 +13,7 @@ describe('ChatCooldown', () => {
   });
 
   it('release 回滚后立即可用', () => {
-    let t = 0;
+    const t = 0;
     const cd = new ChatCooldown(300_000, () => t);
     cd.mark('tg:c1', 'turn-a', t);
     cd.release('tg:c1');
@@ -21,7 +21,7 @@ describe('ChatCooldown', () => {
   });
 
   it('不同 key 互不影响', () => {
-    let t = 0;
+    const t = 0;
     const cd = new ChatCooldown(300_000, () => t);
     cd.mark('tg:c1', 'turn-a', t);
     expect(cd.check('tg:c2', 'turn-b', t + 1)).toBeUndefined();
