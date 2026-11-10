@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.4.0 (2026-11-10)
+
+会画图了：文生图能力上线（免费档起步，多厂商架构就绪）。
+
+- **图像生成**：「画一只戴墨镜的猫」——生成图直接发到会话。起步接智谱 CogView-3-Flash（官方免费档，中文 prompt 原生），架构留多 provider 接口（GPT / Gemini / Grok / Qwen 按需加适配器）
+- **双平台发图通道**：Telegram sendPhoto（直链由 Telegram 服务端拉取）；飞书下载字节后走图片素材上传发送——bot 首次具备发图能力，后续任何生图/内容场景共用
+- **生图冷却**：同一会话 10 分钟冷却（同轮多次也冷却——生图比搜索贵，连画多张烧免费额度），生成失败不回滚冷却（厂商已计次）
+- **配置**：顶层 `imageGeneration` 段（enabled / provider / apiKeyEnv / cooldownMinutes），启动校验 enabled 时 key 非空；未配置密钥时生图工具不装配
+- **重构**：per-chat 冷却逻辑抽取为共享 `ChatCooldown`（web_search 与生图共用同一语义基类）；provider/extractor 解析合并入单一入口避免双重构造
+
 ## 2.3.1 (2026-11-10)
 
 - **自然语言发起投票**：不用再打 `/poll` 和竖线分隔符——直接说「发起个投票，今晚吃什么，火锅还是烧烤」，模型拆出问题与选项（`/poll` 命令保留为确定性兜底）
