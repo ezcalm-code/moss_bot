@@ -55,8 +55,15 @@
 - [x] v0.5 主体（2026-11-10，197 测试全绿）：每日播报（自然语言+命令、到点搜索生成推送）、群投票（TG 原生 poll + 飞书卡片回调计票）、加密笔记（AES-256-GCM，无 key 禁用无明文模式）、timezone 配置基建（Docker UTC 坑）
   - 证据：[v0.5/results.md](verification/v0.5/results.md)
   - 教训：⑲ 飞书 WS 模式没有独立 cardDispatcher——SDK 源码确认卡片回调按 event_type `card.action.trigger` 走同一个 EventDispatcher（README 记忆的 CardActionHandler+cardDispatcher 是 HTTP webhook 用法）；`WSClient.start` 只收 eventDispatcher
-- [ ] v0.5 真机验收（用户）：TG/飞书 /poll 投票（飞书需先后台开启卡片回调订阅）、次日播报推送
-- [ ] 发版 v2.3.0：CHANGELOG + 版本号 + tag + GitHub Release
+- [x] v0.5 真机验收通过（2026-11-10，用户操作）：飞书卡片回调订阅配置成功、/poll 投票 toast 计票（含改票覆盖）、TG/飞书提醒/笔记口述全通
+- [x] release v2.3.0（已发布）
+- [x] v0.6 图像生成（2026-11-10，da7aa51+1d7620d，215 测试全绿，CI 绿）：智谱 CogView-3-Flash 免费档起步（ImageProvider 接口留多 provider）、generate_image 工具（同轮也冷却 10 分钟）、双平台发图通道（TG sendPhoto / 飞书素材上传）、ChatCooldown 抽取共享
+  - 证据：[v0.6-image/results.md](verification/v0.6-image/results.md)
+  - 教训：⑳ **lint 检查只看 tail 一行等于没查**——`npm run lint | tail -1` 打印的是空行而错误列表在前面，prefer-const 三连漏过（⑱ 的变体）；本地三检必须以「命令零退出码」为准而不是肉眼看输出
+- [x] 立即补发语义修复（2026-11-10）：新播报设置时当天时刻已过 → 标记今日已处理，首推落下次日准点（用户真机暴露：设完立刻推了一条）
+- [x] 自然语言投票追加（d25647e）：create_poll 工具，口述建票（飞书真机验证含改票覆盖）
+- [ ] v0.6 真机验收（用户）：bigmodel.cn 免费注册 → 配 ZHIPU_IMAGE_API_KEY → enabled 改 true → 重启 → TG/飞书画图 + 连画两张验冷却
+- [ ] 发版 v2.4.0：CHANGELOG + 版本号 + tag + GitHub Release
 
 ## 审查段
 
