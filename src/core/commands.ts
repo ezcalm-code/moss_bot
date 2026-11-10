@@ -1,6 +1,10 @@
+import { isValidBroadcastTime, normalizeBroadcastTime } from '../broadcasts/service';
+import type { BroadcastService } from '../broadcasts/service';
 import type { IncomingMessage } from '../adapters/types';
 import type { LlmRegistry } from '../llm/registry';
 import { memoryKeyOf, type UserMemoryStore } from '../memory/store';
+import type { NotesService } from '../notes/service';
+import type { PollsService } from '../polls/service';
 import { formatDisplay, parseRemindTime } from '../reminders/parse';
 import type { ReminderService } from '../reminders/service';
 import { texts } from '../text';
@@ -20,6 +24,10 @@ export interface CommandDeps {
   personaName: string;
   memory?: UserMemoryStore;
   reminders?: ReminderService;
+  timezone?: string;
+  notes?: NotesService;
+  broadcasts?: BroadcastService;
+  polls?: PollsService;
 }
 
 export interface CommandSpec {
@@ -231,6 +239,151 @@ export function builtinCommands(): CommandSpec[] {
       },
     },
     {
+      name: 'broadcast',
+      visible: true,
+      description: '设置每日定时播报（如 /broadcast 09:00 AI圈新闻）',
+      usage: '/broadcast <HH:MM> <主题>',
+      async handler(ctx, deps) {
+        if (!deps.broadcasts) {
+          await ctx.reply('播报功能未启用：需要先在 config.yaml 开启联网搜索（tools.webSearch）。');
+          return;
+        }
+        const m = /^(\S+)\s+([\s\S]+)$/.exec(ctx.args.trim());
+        if (!m) {
+          await ctx.reply(
+            '想每天听点什么？格式：/broadcast <HH:MM> <主题>\n例如：/broadcast 09:00 AI圈新闻',
+          );
+          return;
+        }
+        if (!isValidBroadcastTime(m[1] ?? '')) {
+          await ctx.reply(`时间「${m[1]}」看不懂。用 HH:MM（24 小时制）再试一次？`);
+          return;
+        }
+        try {
+          const b = deps.broadcasts.add({
+            platform: ctx.msg.platform,
+            chatId: ctx.msg.chatId,
+            time: normalizeBroadcastTime(m[1] ?? ''),
+            query: (m[2] ?? '').trim(),
+          });
+          await ctx.reply(`好，每天 ${b.time} 给你播报「${b.query}」（id: ${b.id}）。`);
+        } catch (err) {
+          await ctx.reply(`没设成：${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
+    },
+    {
+      name: 'broadcasts',
+      visible: true,
+      description: '列出本会话的每日播报',
+      usage: '/broadcasts',
+      async handler(ctx, deps) {
+        if (!deps.broadcasts) {
+          await ctx.reply('播报功能未启用：需要先在 config.yaml 开启联网搜索（tools.webSearch）。');
+          return;
+        }
+        const list = deps.broadcasts.listByChat(ctx.msg.chatId);
+        if (list.length === 0) {
+          await ctx.reply('这个会话还没有每日播报。');
+          return;
+        }
+        const lines = list.map((b) => `${b.id} · 每天 ${b.time} · ${b.query}`);
+        await ctx.reply(
+          `每日播报：\n${lines.join('\n')}\n用 /unbroadcast <id> 取消。`,
+        );
+      },
+    },
+    {
+      name: 'unbroadcast',
+      visible: true,
+      description: '取消一个每日播报',
+      usage: '/unbroadcast <id>',
+      async handler(ctx, deps) {
+        if (!deps.broadcasts) {
+          await ctx.reply('播报功能未启用：需要先在 config.yaml 开启联网搜索（tools.webSearch）。');
+          return;
+        }
+        const id = ctx.args.trim();
+        if (!id) {
+          await ctx.reply('要取消哪个？/broadcasts 看列表，然后 /unbroadcast <id>。');
+          return;
+        }
+        await ctx.reply(
+          deps.broadcasts.cancel(id, ctx.msg.chatId)
+            ? `已取消播报 ${id}。`
+            : `没找到播报 ${id}（/broadcasts 看看列表）。`,
+        );
+      },
+    },
+    {
+      name: 'poll',
+      visible: true,
+      description: '发起群投票（如 /poll 今晚吃什么 | 火锅 | 烧烤）',
+      usage: '/poll <问题> | <选项1> | <选项2> ...',
+      async handler(ctx, deps) {
+        if (!deps.polls) {
+          await ctx.reply('投票功能未装配。');
+          return;
+        }
+        const parts = ctx.args
+          .split('|')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const [question, options] = [parts[0] ?? '', parts.slice(1)];
+        if (!question || options.length < 2 || options.length > 6) {
+          await ctx.reply(
+            '格式：/poll <问题> | <选项1> | <选项2> ...（2-6 个选项，用 | 分隔）\n例如：/poll 今晚吃什么 | 火锅 | 烧烤',
+          );
+          return;
+        }
+        try {
+          await deps.polls.createPoll(ctx.msg.platform, ctx.msg.chatId, question, options);
+        } catch (err) {
+          await ctx.reply(`投票发起失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
+    },
+    {
+      name: 'notes',
+      visible: true,
+      description: '列出你的加密笔记',
+      usage: '/notes',
+      async handler(ctx, deps) {
+        if (!deps.notes) {
+          await ctx.reply('笔记功能未启用：需要先在 .env 配置 NOTES_ENCRYPTION_KEY（加密密钥）。');
+          return;
+        }
+        const items = deps.notes.list(`${ctx.msg.platform}:${ctx.msg.senderId}`);
+        if (items.length === 0) {
+          await ctx.reply('你还没有笔记。直接对我说「帮我记个笔记：xxx」就行。');
+          return;
+        }
+        const lines = items.map((n) => `${n.id} · ${n.text}`);
+        await ctx.reply(
+          `你的笔记（加密存储）：\n${lines.join('\n')}\n用 /delnote <id> 删除。`,
+        );
+      },
+    },
+    {
+      name: 'delnote',
+      visible: true,
+      description: '删除一条笔记',
+      usage: '/delnote <id>',
+      async handler(ctx, deps) {
+        if (!deps.notes) {
+          await ctx.reply('笔记功能未启用：需要先在 .env 配置 NOTES_ENCRYPTION_KEY（加密密钥）。');
+          return;
+        }
+        const id = ctx.args.trim();
+        if (!id) {
+          await ctx.reply('要删哪条？/notes 看列表，然后 /delnote <id>。');
+          return;
+        }
+        const userId = `${ctx.msg.platform}:${ctx.msg.senderId}`;
+        await ctx.reply(deps.notes.remove(userId, id) ? `已删除笔记 ${id}。` : `没找到笔记 ${id}（/notes 看看列表）。`);
+      },
+    },
+    {
       name: 'remind',
       visible: true,
       description: '到点提醒你做某事（如 /remind 09:00 起床）',
@@ -247,7 +400,7 @@ export function builtinCommands(): CommandSpec[] {
           );
           return;
         }
-        const parsed = parseRemindTime(m[1] ?? '');
+        const parsed = parseRemindTime(m[1] ?? '', Date.now(), deps.timezone);
         if (!parsed) {
           await ctx.reply(`时间「${m[1]}」看不懂。用 HH:MM 或 YYYY-MM-DD HH:MM 再试一次？`);
           return;
@@ -282,7 +435,7 @@ export function builtinCommands(): CommandSpec[] {
           return;
         }
         const lines = list.map(
-          (r) => `${r.id} · ${formatDisplay(new Date(r.dueAt))} · ${r.text}`,
+          (r) => `${r.id} · ${formatDisplay(r.dueAt, deps.timezone)} · ${r.text}`,
         );
         await ctx.reply(`待触发的提醒：\n${lines.join('\n')}\n用 /unremind <id> 取消。`);
       },

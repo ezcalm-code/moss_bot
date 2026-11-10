@@ -51,6 +51,12 @@
 - [x] CI 失败结案（2026-11-10）：8c86fcb 失败于 npm run lint（prefer-const，修复在 e052e9a）；其后 c0335ff 失败于 typecheck——v0.4 提交漏 add 了 src/tools/index.test.ts 的 ToolContext fixture 修复（本地绿 CI 红的根因），补提交 404f665 后 CI 全绿
   - 教训：⑱ **本地三检全绿 ≠ 提交内容三检全绿**——逐文件 git add 时漏掉一个测试文件，本地修复没进提交树；提交后跑一次 `git status --short` 确认零残留，或直接以提交树为准重跑三检
 
+- [x] v0.5 主体（2026-11-10，197 测试全绿）：每日播报（自然语言+命令、到点搜索生成推送）、群投票（TG 原生 poll + 飞书卡片回调计票）、加密笔记（AES-256-GCM，无 key 禁用无明文模式）、timezone 配置基建（Docker UTC 坑）
+  - 证据：[v0.5/results.md](verification/v0.5/results.md)
+  - 教训：⑲ 飞书 WS 模式没有独立 cardDispatcher——SDK 源码确认卡片回调按 event_type `card.action.trigger` 走同一个 EventDispatcher（README 记忆的 CardActionHandler+cardDispatcher 是 HTTP webhook 用法）；`WSClient.start` 只收 eventDispatcher
+- [ ] v0.5 真机验收（用户）：TG/飞书 /poll 投票（飞书需先后台开启卡片回调订阅）、次日播报推送
+- [ ] 发版 v2.3.0：CHANGELOG + 版本号 + tag + GitHub Release
+
 ## 审查段
 
 - 2026-11-06 阶段 0-2 完成：42 个单测全绿 + REPL 真实链路验证（内部 OpenAI 兼容网关）。

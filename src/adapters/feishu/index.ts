@@ -2,6 +2,7 @@ import * as Lark from '@larksuiteoapi/node-sdk';
 import type { Logger } from '../../log';
 import type { IncomingMessage, PlatformAdapter, PlatformId } from '../types';
 import { extractPostContent, normalizeFeishuMessage } from './normalize';
+import { buildPollCardJson, type PollsService } from '../../polls/service';
 import { FeishuSimpleReply, FeishuStreamReply, type FeishuCardApi } from './stream';
 
 export interface FeishuAdapterOptions {
@@ -10,6 +11,8 @@ export interface FeishuAdapterOptions {
   domain: 'feishu' | 'lark';
   streaming: boolean;
   log: Logger;
+  /** 群投票：注入后卡片按钮回调才可用（开发者后台需开启卡片回调订阅） */
+  polls?: PollsService;
 }
 
 const DOMAIN_HOST: Record<'feishu' | 'lark', string> = {
@@ -72,6 +75,10 @@ export class FeishuAdapter implements PlatformAdapter {
       'im.message.receive_v1': async (data) => {
         await this.onEvent(data);
       },
+      // WS 模式下卡片回调（按钮点击）也经同一 dispatcher 按 event_type 路由（SDK 源码确认无独立 cardDispatcher 入参）
+      ...(this.opts.polls && {
+        'card.action.trigger': async (data: unknown) => this.onCardAction(data),
+      }),
     });
 
     // 飞书在事件未及时确认时会重推（同一条消息回复两次的根因）：
@@ -102,6 +109,32 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 主动推送（定时提醒）：文本消息不依赖收件事件，与 reply 同一条发送通道 */
   async sendTo(chatId: string, text: string): Promise<void> {
     await this.makeCardApi().sendTextMessage(chatId, text);
+  }
+
+  /** 发送投票卡片（按钮 value 携带 poll_id 与 option_idx，点击经 cardDispatcher 回来） */
+  async sendPollCard(
+    chatId: string,
+    pollId: string,
+    question: string,
+    options: string[],
+  ): Promise<void> {
+    await this.makeCardApi().sendCardMessage(chatId, await this.makeCardApi().createCard(buildPollCardJson(question, options, pollId)));
+  }
+
+  /**
+   * 卡片按钮回调：投票计票 + toast 反馈（内存操作，远小于 3 秒响应约束）。
+   * 首次联调时全量打结构日志——回调实际形状以真机为准（教训⑫）。
+   */
+  private async onCardAction(data: unknown): Promise<Record<string, unknown>> {
+    this.opts.log.info({ data }, 'feishu 卡片回调');
+    const value = (data as { action?: { value?: Record<string, unknown> } })?.action?.value;
+    if (!value || value.type !== 'poll_vote' || !this.opts.polls) return {};
+    const voter =
+      (data as { operator?: { open_id?: string } })?.operator?.open_id ??
+      (data as { operator_id?: { open_id?: string } })?.operator_id?.open_id ??
+      'unknown';
+    const result = this.opts.polls.vote(String(value.poll_id), voter, Number(value.option_idx));
+    return { toast: { type: result.ok ? 'info' : 'error', content: result.toast } };
   }
 
   private async onEvent(data: unknown) {

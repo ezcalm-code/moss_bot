@@ -4,6 +4,8 @@
 log:
   level: info # debug | info | warn | error
 
+timezone: Asia/Shanghai # IANA 时区（可选，缺省进程本地）；提醒/播报/时间注入统一按此计算，Docker 部署建议显式配置
+
 persona:
   name: Moss
   systemPromptFile: ./prompts/default.md # 相对 config.yaml 所在目录；也可用 systemPrompt: | 内联

@@ -33,6 +33,6 @@ describe('parseRemindTime', () => {
   });
 
   it('formatDisplay 输出零填充', () => {
-    expect(formatDisplay(new Date(2026, 10, 9, 8, 5))).toBe('2026-11-09 08:05');
+    expect(formatDisplay(new Date(2026, 10, 9, 8, 5).getTime())).toBe('2026-11-09 08:05');
   });
 });

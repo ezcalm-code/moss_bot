@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { BUILTIN_SYSTEM_PROMPT, configSchema, type ResolvedConfig } from './schema';
+import { isValidTimezone } from '../time';
 
 export class ConfigError extends Error {}
 
@@ -61,6 +62,9 @@ export function resolveConfig(
   }
 
   const aliases = cfg.models.entries.map((e) => e.alias);
+  if (cfg.timezone !== undefined && !isValidTimezone(cfg.timezone)) {
+    throw new ConfigError(`timezone "${cfg.timezone}" 不是合法的 IANA 时区名（如 Asia/Shanghai）`);
+  }
   const duplicate = aliases.find((a, i) => aliases.indexOf(a) !== i);
   if (duplicate !== undefined) {
     throw new ConfigError(`models.entries 存在重复 alias: ${duplicate}`);
@@ -130,6 +134,7 @@ export function resolveConfig(
       streaming: cfg.feishu.streaming,
     },
     memory: cfg.memory,
+    timezone: cfg.timezone,
     tools: {
       webSearch: {
         enabled: ws.enabled,

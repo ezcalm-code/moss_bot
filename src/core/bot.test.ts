@@ -207,23 +207,29 @@ describe('parseCommand', () => {
 });
 
 describe('CommandRegistry', () => {
-  it('内置命令表暴露 11 个可见命令（/start 不可见）', () => {
+  it('内置命令表暴露 17 个可见命令（/start 不可见）', () => {
     const registry = new CommandRegistry(builtinCommands());
     const menu = registry
       .menu()
       .map((m) => m.name)
       .sort();
     expect(menu).toEqual([
+      'broadcast',
+      'broadcasts',
       'compact',
+      'delnote',
       'forget',
       'help',
       'memory',
       'model',
       'models',
+      'notes',
+      'poll',
       'remember',
       'remind',
       'reminders',
       'reset',
+      'unbroadcast',
       'unremind',
     ]);
   });
@@ -449,7 +455,7 @@ describe('/remember /memory /forget', () => {
     expect(state.replies.join('\n')).toContain('想让我记什么');
   });
 
-  it('菜单含 11 个可见命令', () => {
+  it('菜单含 17 个可见命令', () => {
     const registry = new CommandRegistry(builtinCommands());
     expect(
       registry
@@ -457,16 +463,22 @@ describe('/remember /memory /forget', () => {
         .map((m) => m.name)
         .sort(),
     ).toEqual([
+      'broadcast',
+      'broadcasts',
       'compact',
+      'delnote',
       'forget',
       'help',
       'memory',
       'model',
       'models',
+      'notes',
+      'poll',
       'remember',
       'remind',
       'reminders',
       'reset',
+      'unbroadcast',
       'unremind',
     ]);
   });

@@ -9,10 +9,17 @@ import { SessionManager } from './core/session';
 import { buildRegistry } from './llm/registry';
 import { createLogger } from './log';
 import { UserMemoryStore } from './memory/store';
+import { createAddNoteTool } from './notes/notes-tool';
+import { NotesService } from './notes/service';
+import { NotesStore } from './notes/store';
 import { createReminderTool } from './reminders/reminder-tool';
 import { ReminderService } from './reminders/service';
 import { ReminderStore } from './reminders/store';
-import { createToolRunner } from './tools';
+import { BroadcastService, type BroadcastGenerate } from './broadcasts/service';
+import { BroadcastStore } from './broadcasts/store';
+import { createScheduleBroadcastTool } from './broadcasts/broadcast-tool';
+import { createSearchProvider, createToolRunner } from './tools';
+import { PollsService } from './polls/service';
 import { FileSessionStore } from './stores/file';
 import { MemorySessionStore } from './stores/memory';
 import { VERSION } from './version';
@@ -31,8 +38,41 @@ async function main(): Promise<void> {
 
   const registry = buildRegistry(config, proxyDispatcher);
   const reminders = new ReminderService(new ReminderStore(join('data', 'reminders'), log), log);
+  // 笔记模块需要加密密钥：未配置 NOTES_ENCRYPTION_KEY 时整体不装配（不提供明文模式）
+  const notesKey = process.env.NOTES_ENCRYPTION_KEY;
+  const notes = notesKey
+    ? new NotesService(new NotesStore(join('data', 'notes', 'notes.bin'), notesKey))
+    : undefined;
+  // 每日播报生成：搜索 + 摘要（不进会话历史；每条每天 1 次搜索 + 1 次 LLM）
+  const searchProvider = createSearchProvider(config.tools, proxyDispatcher);
+  const broadcasts = searchProvider
+    ? new BroadcastService(new BroadcastStore(join('data', 'broadcasts'), log), config.timezone, log)
+    : undefined;
+  const generate: BroadcastGenerate = async (b) => {
+    if (!searchProvider) return '播报功能未启用。';
+    const results = await searchProvider.search(b.query, { maxResults: 5 });
+    if (results.length === 0) {
+      return `没搜到与「${b.query}」相关的内容。`;
+    }
+    const formatted = results
+      .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content.slice(0, 300)}`)
+      .join('\n\n');
+    return registry.chat(undefined, [
+      {
+        role: 'user',
+        content: [
+          `今天是 ${new Date().toLocaleDateString('zh-CN')}。用户订阅了每日播报，主题：「${b.query}」。`,
+          '请根据下面的搜索结果写一段 200 字以内的中文摘要，口语化、有信息量，末尾附上 1-2 个信息源链接。',
+          '搜索结果：',
+          formatted,
+        ].join('\n'),
+      },
+    ]);
+  };
   const tools = createToolRunner(config.tools, proxyDispatcher, [
     createReminderTool({ service: reminders }),
+    ...(notes ? [createAddNoteTool({ service: notes })] : []),
+    ...(broadcasts ? [createScheduleBroadcastTool({ service: broadcasts })] : []),
   ]);
   const store =
     config.session.store === 'file'
@@ -40,6 +80,7 @@ async function main(): Promise<void> {
       : new MemorySessionStore();
   const sessions = new SessionManager(store, config.session.maxHistoryMessages);
   const memory = config.memory.enabled ? new UserMemoryStore(join('data', 'memory')) : undefined;
+  const polls = new PollsService(log);
   const bot = new BotCore({
     registry,
     sessions,
@@ -48,7 +89,11 @@ async function main(): Promise<void> {
     log,
     memory,
     tools,
+    timezone: config.timezone,
     reminders,
+    notes,
+    broadcasts,
+    polls,
   });
 
   const adapters: PlatformAdapter[] = [];
@@ -65,6 +110,7 @@ async function main(): Promise<void> {
         domain: config.feishu.domain,
         streaming: config.feishu.streaming,
         log,
+        polls,
       }),
     );
   }
@@ -82,6 +128,7 @@ async function main(): Promise<void> {
     stopping = true;
     log.info({ signal }, '收到停机信号，优雅关闭中');
     reminders.stop();
+    broadcasts?.stop();
     void Promise.all(
       adapters.map(async (a) => {
         try {
@@ -124,6 +171,32 @@ async function main(): Promise<void> {
     }
     await adapter.sendTo(chatId, text);
   });
+  for (const adapter of adapters) {
+    if (adapter.id === 'telegram') {
+      polls.registerSender('telegram', (chatId, _pollId, question, options) =>
+        (adapter as TelegramAdapter).sendPoll(chatId, question, options),
+      );
+    }
+    if (adapter.id === 'feishu') {
+      polls.registerSender('feishu', (chatId, pollId, question, options) =>
+        (adapter as FeishuAdapter).sendPollCard(chatId, pollId, question, options),
+      );
+    }
+  }
+
+  if (broadcasts) {
+    broadcasts.start(
+      async (platform, chatId, text) => {
+        const adapter = adapters.find((a) => a.id === platform);
+        if (!adapter) {
+          log.warn({ platform, chatId }, '播报目标平台未启用，丢弃');
+          return;
+        }
+        await adapter.sendTo(chatId, text);
+      },
+      generate,
+    );
+  }
   log.info(
     { version: VERSION, platforms: adapters.map((a) => a.id), defaultModel: registry.defaultAlias },
     `moss-bots v${VERSION} 已启动`,

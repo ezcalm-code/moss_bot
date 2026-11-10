@@ -76,13 +76,11 @@ export const SEARCH_PROVIDER_FACTORIES: Record<
   tavily: createTavilyProvider,
 };
 
-/** 装配点入口；enabled=false 或缺 tools 段返回 undefined（BotCore 视为无工具）。
- * extras：装配方注入的额外工具（如 schedule_reminder），与内置工具并存 */
-export function createToolRunner(
+/** 按配置解析搜索源与正文提取器；webSearch 未启用返回 undefined。校验失败抛 ConfigError */
+function resolveSearchAndExtractor(
   config: ResolvedConfig['tools'],
   proxyDispatcher?: Dispatcher,
-  extras?: readonly ToolSpec[],
-): ToolRunner | undefined {
+): { provider: SearchProvider; extractor: PageExtractor } | undefined {
   const ws = config.webSearch;
   if (!ws.enabled) return undefined;
   const factory = SEARCH_PROVIDER_FACTORIES[ws.provider];
@@ -98,13 +96,31 @@ export function createToolRunner(
     );
   }
   const common = { apiKey: p.apiKey, baseUrl: p.baseUrl, dispatcher: proxyDispatcher };
-  const provider = factory(common);
-  const extractor: PageExtractor = createTavilyExtractor(common);
+  return { provider: factory(common), extractor: createTavilyExtractor(common) };
+}
+
+/** 按配置解析搜索源（播报生成等复用同一 provider）；未启用返回 undefined */
+export function createSearchProvider(
+  config: ResolvedConfig['tools'],
+  proxyDispatcher?: Dispatcher,
+): SearchProvider | undefined {
+  return resolveSearchAndExtractor(config, proxyDispatcher)?.provider;
+}
+
+/** 装配点入口；enabled=false 或缺 tools 段返回 undefined（BotCore 视为无工具）。
+ * extras：装配方注入的额外工具（如 schedule_reminder），与内置工具并存 */
+export function createToolRunner(
+  config: ResolvedConfig['tools'],
+  proxyDispatcher?: Dispatcher,
+  extras?: readonly ToolSpec[],
+): ToolRunner | undefined {
+  const resolved = resolveSearchAndExtractor(config, proxyDispatcher);
+  if (!resolved) return undefined;
   const spec = createWebSearchTool({
-    provider,
-    maxResults: ws.maxResults,
-    cooldownMinutes: ws.cooldownMinutes,
+    provider: resolved.provider,
+    maxResults: config.webSearch.maxResults,
+    cooldownMinutes: config.webSearch.cooldownMinutes,
   });
-  const readUrl = createReadUrlTool({ extractor });
+  const readUrl = createReadUrlTool({ extractor: resolved.extractor });
   return new ToolRunner([spec, readUrl, ...(extras ?? [])]);
 }

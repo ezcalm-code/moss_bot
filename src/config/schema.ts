@@ -18,6 +18,8 @@ const webSearchProviderSchema = z.object({
 
 export const configSchema = z.object({
   log: z.object({ level: z.enum(['debug', 'info', 'warn', 'error']) }).prefault({ level: 'info' }),
+  /** IANA 时区（如 Asia/Shanghai）；缺省 = 进程本地时区。提醒/播报/时间注入统一锚定 */
+  timezone: z.string().min(1).optional(),
   persona: z
     .object({
       name: z.string().min(1),
@@ -118,6 +120,8 @@ export interface ResolvedConfig {
     streaming: boolean;
   };
   memory: { enabled: boolean };
+  /** IANA 时区；undefined = 进程本地 */
+  timezone?: string;
   tools: {
     webSearch: {
       enabled: boolean;

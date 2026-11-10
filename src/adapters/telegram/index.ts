@@ -104,6 +104,11 @@ export class TelegramAdapter implements PlatformAdapter {
     await this.grammy.api.sendMessage(chatId, text);
   }
 
+  /** 非匿名投票：TG 客户端原生实时计票，bot 无需记票 */
+  async sendPoll(chatId: string, question: string, options: string[]): Promise<void> {
+    await this.grammy.api.sendPoll(chatId, question, options, { is_anonymous: false });
+  }
+
   async registerCommands(
     commands: readonly { name: string; description: string }[],
   ): Promise<void> {

@@ -4,7 +4,11 @@ import type { Logger } from '../log';
 import type { LlmRegistry } from '../llm/registry';
 import type { ChatMessage, MessageContent, ToolCall } from '../llm/types';
 import { buildExtractPrompt, memoryKeyOf, type UserMemoryStore } from '../memory/store';
+import type { BroadcastService } from '../broadcasts/service';
+import type { NotesService } from '../notes/service';
+import type { PollsService } from '../polls/service';
 import type { ReminderService } from '../reminders/service';
+import { zonedNow } from '../time';
 import { toFunctionTool, type ToolRunner } from '../tools';
 import { texts } from '../text';
 import { builtinCommands, CommandRegistry, parseCommand, type CommandDeps } from './commands';
@@ -28,6 +32,14 @@ export interface BotCoreOptions {
   tools?: ToolRunner;
   /** 定时提醒服务；缺省 = 提醒命令不可用 */
   reminders?: ReminderService;
+  /** 加密笔记服务；缺省 = 笔记命令不可用（未配置 NOTES_ENCRYPTION_KEY） */
+  notes?: NotesService;
+  /** 每日播报服务；缺省 = 播报命令不可用（未启用联网搜索） */
+  broadcasts?: BroadcastService;
+  /** 群投票服务；缺省 = 投票命令不可用 */
+  polls?: PollsService;
+  /** IANA 时区；缺省 = 进程本地。时间注入与提醒解析统一锚定 */
+  timezone?: string;
 }
 
 /** 平台无关的消息管道：命令路由 → 群聊过滤 → 会话装载 → LLM 流式回复 → 历史回写 */
@@ -38,6 +50,7 @@ export class BotCore {
   private readonly systemPrompt: string;
   private readonly memory: UserMemoryStore | undefined;
   private readonly tools: ToolRunner | undefined;
+  private readonly timezone: string | undefined;
   private readonly chatQueues = new Map<string, Promise<void>>();
   private readonly queueDepth = new Map<string, number>();
 
@@ -46,12 +59,17 @@ export class BotCore {
     this.systemPrompt = opts.systemPrompt;
     this.memory = opts.memory;
     this.tools = opts.tools;
+    this.timezone = opts.timezone;
     this.deps = {
       registry: opts.registry,
       sessions: opts.sessions,
       personaName: opts.personaName,
       memory: opts.memory,
       reminders: opts.reminders,
+      notes: opts.notes,
+      broadcasts: opts.broadcasts,
+      polls: opts.polls,
+      timezone: opts.timezone,
       commands: null as unknown as CommandRegistry,
     };
     this.commands = new CommandRegistry(builtinCommands());
@@ -257,7 +275,7 @@ export class BotCore {
   }
 
   private async systemWithMemory(msg: IncomingMessage): Promise<string> {
-    const base = `${this.systemPrompt}\n\n${currentDateLine()}`;
+    const base = `${this.systemPrompt}\n\n${currentDateLine(this.timezone)}`;
     if (!this.memory) return base;
     try {
       const known = await this.memory.load(memoryKeyOf(msg.platform, msg.senderId));
@@ -300,11 +318,11 @@ function isClientApiRejection(err: unknown): boolean {
 }
 
 /** 模型无时间感知（训练截止 + 无时钟），「今天/最近/X分钟后」类问题与工具的时间推算都靠这行锚定 */
-function currentDateLine(): string {
-  const d = new Date();
-  const week = '日一二三四五六'[d.getDay()];
+function currentDateLine(timezone?: string): string {
+  const p = zonedNow(timezone);
+  const week = '日一二三四五六'[p.weekday];
   const pad = (n: number) => String(n).padStart(2, '0');
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const date = `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+  const clock = `${pad(p.hour)}:${pad(p.minute)}`;
   return `现在的本地时间是 ${date} ${clock}（周${week}）。用户说「今天/昨天/最近/X分钟后」时以此为准推算；信息无法确认时效时，明确说明日期与不确定性。`;
 }

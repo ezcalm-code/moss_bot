@@ -8,10 +8,16 @@ import { BotCore } from '../core/bot';
 import { SessionManager } from '../core/session';
 import { buildRegistry } from '../llm/registry';
 import { createLogger } from '../log';
+import { createAddNoteTool } from '../notes/notes-tool';
+import { NotesService } from '../notes/service';
+import { NotesStore } from '../notes/store';
 import { createReminderTool } from '../reminders/reminder-tool';
 import { ReminderService } from '../reminders/service';
 import { ReminderStore } from '../reminders/store';
-import { createToolRunner } from '../tools';
+import { BroadcastService, type BroadcastGenerate } from '../broadcasts/service';
+import { BroadcastStore } from '../broadcasts/store';
+import { createScheduleBroadcastTool } from '../broadcasts/broadcast-tool';
+import { createSearchProvider, createToolRunner } from '../tools';
 import { FileSessionStore } from '../stores/file';
 import { MemorySessionStore } from '../stores/memory';
 
@@ -55,8 +61,41 @@ async function main(): Promise<void> {
   const proxyDispatcher = getProxyDispatcher();
   const registry = buildRegistry(config, proxyDispatcher);
   const reminders = new ReminderService(new ReminderStore(join('data', 'reminders'), log), log);
+  // 笔记模块需要加密密钥：未配置 NOTES_ENCRYPTION_KEY 时整体不装配（不提供明文模式）
+  const notesKey = process.env.NOTES_ENCRYPTION_KEY;
+  const notes = notesKey
+    ? new NotesService(new NotesStore(join('data', 'notes', 'notes.bin'), notesKey))
+    : undefined;
+  // 每日播报生成：搜索 + 摘要（REPL 内直接打印）
+  const searchProvider = createSearchProvider(config.tools, proxyDispatcher);
+  const broadcasts = searchProvider
+    ? new BroadcastService(new BroadcastStore(join('data', 'broadcasts'), log), config.timezone, log)
+    : undefined;
+  const generate: BroadcastGenerate = async (b) => {
+    if (!searchProvider) return '播报功能未启用。';
+    const results = await searchProvider.search(b.query, { maxResults: 5 });
+    if (results.length === 0) {
+      return `没搜到与「${b.query}」相关的内容。`;
+    }
+    const formatted = results
+      .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content.slice(0, 300)}`)
+      .join('\n\n');
+    return registry.chat(undefined, [
+      {
+        role: 'user',
+        content: [
+          `今天是 ${new Date().toLocaleDateString('zh-CN')}。用户订阅了每日播报，主题：「${b.query}」。`,
+          '请根据下面的搜索结果写一段 200 字以内的中文摘要，口语化、有信息量，末尾附上 1-2 个信息源链接。',
+          '搜索结果：',
+          formatted,
+        ].join('\n'),
+      },
+    ]);
+  };
   const tools = createToolRunner(config.tools, proxyDispatcher, [
     createReminderTool({ service: reminders }),
+    ...(notes ? [createAddNoteTool({ service: notes })] : []),
+    ...(broadcasts ? [createScheduleBroadcastTool({ service: broadcasts })] : []),
   ]);
   const store =
     config.session.store === 'file'
@@ -72,12 +111,23 @@ async function main(): Promise<void> {
     log,
     memory,
     tools,
+    timezone: config.timezone,
     reminders,
+    notes,
+    broadcasts,
   });
   // REPL 的提醒投递直接打到终端
   reminders.start(async (_platform, _chatId, text) => {
     console.log(`\n⏰ ${text}\n`);
   });
+  if (broadcasts) {
+    broadcasts.start(
+      async (_platform, _chatId, text) => {
+        console.log(`\n📰 ${text}\n`);
+      },
+      generate,
+    );
+  }
 
   const { entry, provider } = registry.resolve();
   console.log(
