@@ -25,13 +25,13 @@
 - [x] 阶段 4：飞书适配器（代码 + 19 用例完成；AC4.1-4.6 真机联调待自建应用凭据）
 - [x] 阶段 5：健壮性打磨（优雅停机 / 进程兜底 / AC5.2 LLM 故障实测 PASS）；CHANGELOG / README 完稿
 - [x] Telegram 真机联调第一轮：bot 上线，AC3.1 私聊流式回复、AC3.4 命令菜单 PASS（2026-11-06）
-- [ ] AC3.2/3.3 群聊与超长回复真机测试（需先在 BotFather /setprivacy Disable）
-- [ ] 飞书真机联调（等自建应用凭据）
+- [x] AC3.2 群聊真机通过；AC3.3 超长分段仍挂账（见下方挂账条）
+- [x] 飞书真机联调打通（2026-11-09，私聊/群聊/图片/命令全过，见审查段）
 - [x] 提交前脱敏：三轮敏感信息审查（密钥全在 gitignored .env；文档内部域名/服务名/bot 用户名/代理端口已脱敏）
 - [x] 提交代码 → 推远端 → CI 全绿 → tag v0.1.0（2026-11-06，github.com/ezcalm-code/moss_bot）
 - [x] 多模态里程碑：图片理解 / 回复取图 / 飞书 post 富文本 / 飞书图片与重复回复修复（2026-11-09）
 - [x] release v2.0.0：CHANGELOG 定稿 + package.json 2.0.0 + tag 推送 + CI 绿（87af7d0，本机无 gh，以 tag 为 release）
-- [ ] 实时互联网消息：方案 A-D 已给用户评估中；用户对方案 B（Function Calling + 搜索工具）有后续疑问待答
+- [x] 实时互联网消息：用户选定方案 B，已实施并发布（见下方方案 B 条）
 - [x] 方案 B 实施：工具框架 + web_search（Tavily）+ 5 分钟冷却 + supportsTools 能力位（2026-11-09，150 测试全绿，REPL 三场景实测，9e27f4d）
   - 证据：[v0.3-tools/results.md](verification/v0.3-tools/results.md)
   - 教训：⑮ `const res = await opts.fetch ? a() : b()` 的 await 只作用于条件本身，res 拿到的是未 await 的 Promise——ternary 里的副作用调用必须整体先赋值再 await（tavily.test.ts 首轮全红抓出）
