@@ -181,9 +181,10 @@ export class BotCore {
       { role: 'user' as const, content: requestContent },
     ];
 
-    // 带图轮不挂工具：图片与工具同被 4xx 拒时无法归因；看图场景搜索价值也低
+    // 带图轮也挂工具：「发图让 bot 模仿生图」需要同轮看图 + 画图。
+    // 4xx 归因（图 vs 工具被拒）改为降级顺序解决：首轮被拒先去工具重试（图保留），仍拒才判视觉问题——见 catch。
     const toolDefs =
-      this.tools && !registry.isToolsBlocked(entry.model) && dataUrls.length === 0
+      this.tools && !registry.isToolsBlocked(entry.model)
         ? this.tools.specs().map(toFunctionTool)
         : undefined;
 
@@ -222,17 +223,16 @@ export class BotCore {
       await handle.finish();
     } catch (err) {
       this.log.warn({ err, model: entry.model, platform: msg.platform }, 'LLM 流式回复失败');
-      // 带图请求被 API 拒绝（4xx）：运行时探测为该模型不支持视觉，记入缓存并引导用户换模型
-      if (dataUrls.length > 0 && isClientApiRejection(err)) {
-        registry.markNoVision(entry.model);
-        await handle.abort(new Error(texts.noVision(registry.listAliases())));
-        return;
-      }
-      // 首轮带工具被 4xx 拒：该模型/网关不支持 tools，记入缓存并透明降级重试一次
+      // 首轮带工具被 4xx 拒：透明降级——去工具重试一次（带图轮保留图，看图不受影响）。
+      // 带图轮的 4xx 无法区分图/工具归因：不标能力位，等重试结果——重试仍 4xx 才判视觉问题。
       let finalErr: unknown = err;
       if (toolDefs && toolRound === 0 && full === '' && isClientApiRejection(err)) {
-        registry.markNoTools(entry.model);
-        this.log.info({ model: entry.model }, '模型不支持工具调用，已标记并以无工具重试');
+        if (dataUrls.length === 0) {
+          registry.markNoTools(entry.model);
+          this.log.info({ model: entry.model }, '模型不支持工具调用，已标记并以无工具重试');
+        } else {
+          this.log.info({ model: entry.model }, '带图轮 4xx，先去工具重试以归因');
+        }
         try {
           await consumeRound(undefined);
           await handle.finish();
@@ -242,6 +242,12 @@ export class BotCore {
         } catch (retryErr) {
           finalErr = retryErr;
         }
+      }
+      // 无工具请求仍被 4xx 拒且带图：判定为视觉问题，标记并引导换模型
+      if (dataUrls.length > 0 && isClientApiRejection(finalErr)) {
+        registry.markNoVision(entry.model);
+        await handle.abort(new Error(texts.noVision(registry.listAliases())));
+        return;
       }
       await handle.abort(finalErr instanceof Error ? finalErr : new Error(String(finalErr)));
       return;

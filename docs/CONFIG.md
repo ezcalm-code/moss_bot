@@ -118,7 +118,7 @@ Record 类型，key 为 provider id。
 - **add_note**（记笔记）：用户口述内容记入加密笔记，需 NOTES_ENCRYPTION_KEY；`/notes` 查看、`/delnote <id>` 删除
 - **schedule_broadcast**（每日播报）：自然语言设置每日定时推送（到点自动搜索 + 生成摘要 + 推送）；每条每天消耗 1 次搜索 + 1 次 LLM；`/broadcasts` 查看、`/unbroadcast <id>` 取消
 
-带图消息的轮次不挂工具；模型不支持 tools 时自动降级为普通聊天（可对具体模型设 `models.entries[].supportsTools: false` 静态关闭）。
+带图消息的轮次同样挂工具（支持「发图让 bot 模仿生图」这类组合）；首轮被 4xx 拒时自动去工具重试一次以归因，仍被拒才判视觉问题。模型不支持 tools 时自动降级为普通聊天（可对具体模型设 `models.entries[].supportsTools: false` 静态关闭）。
 
 ## 启动期校验规则
 

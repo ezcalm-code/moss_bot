@@ -708,14 +708,50 @@ describe('工具调用循环', () => {
     expect(calls[0]?.hasTools).toBe(false);
   });
 
-  it('带图轮不挂工具', async () => {
+  it('带图轮也挂工具（模仿生图依赖同轮看图+画图）', async () => {
     const { bot, calls } = makeDeps(undefined, stubToolRunner('r'));
     const { msg } = fakeMsg('这是什么', {
       attachments: [{ type: 'image' }],
       dataUrls: ['data:image/jpeg;base64,aGVsbG8='],
     });
     await bot.handle(msg);
-    expect(calls[0]?.hasTools).toBe(false);
+    expect(calls[0]?.hasTools).toBe(true);
+  });
+
+  it('带图轮首轮 4xx：透明去工具重试成功（不标视觉也不标工具）', async () => {
+    const { bot, calls, registry, setFailWithStatusOnce } = makeDeps(
+      undefined,
+      stubToolRunner('r'),
+    );
+    setFailWithStatusOnce(400);
+    const { msg, state } = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: ['data:image/jpeg;base64,aGVsbG8='],
+    });
+    await bot.handle(msg);
+    expect(calls).toHaveLength(2); // 带图带工具 → 去工具重试
+    expect(calls[0]?.hasTools).toBe(true);
+    expect(calls[1]?.hasTools).toBe(false);
+    expect(calls[1]?.messages.at(-1)).toMatchObject({ role: 'user' }); // 图保留在重试请求里
+    expect(state.finished).toBe(true);
+    expect(registry.isToolsBlocked('grok-a')).toBe(false); // 归因未定，不标工具位
+    expect(registry.isVisionBlocked('grok-a')).toBe(false); // 重试成功，不标视觉位
+  });
+
+  it('带图轮去工具重试仍 4xx：判视觉问题并标记', async () => {
+    const { bot, calls, registry, setFailWithStatus } = makeDeps(
+      undefined,
+      stubToolRunner('r'),
+    );
+    setFailWithStatus(400); // 两次都拒
+    const { msg, state } = fakeMsg('这是什么', {
+      attachments: [{ type: 'image' }],
+      dataUrls: ['data:image/jpeg;base64,aGVsbG8='],
+    });
+    await bot.handle(msg);
+    expect(calls).toHaveLength(2);
+    expect(state.aborted?.message).toContain('不支持');
+    expect(registry.isVisionBlocked('grok-a')).toBe(true);
   });
 
   it('冷却贯穿 bot：跨轮（两次用户消息）第二次搜索被冷却拦截', async () => {
