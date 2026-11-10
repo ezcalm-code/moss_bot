@@ -4,7 +4,15 @@ import { ToolRunner, toFunctionTool } from './index';
 import type { ToolSpec } from './types';
 
 const log = pino({ level: 'silent' });
-const ctx = { platform: 'telegram', chatId: 'c', senderId: 'u', isGroup: false, log } as const;
+const ctx = {
+  platform: 'telegram',
+  chatId: 'c',
+  senderId: 'u',
+  senderName: 'U',
+  isGroup: false,
+  turnId: 't1',
+  log,
+} as const;
 
 const echo: ToolSpec = {
   name: 'echo_tool',
