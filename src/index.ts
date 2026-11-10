@@ -20,6 +20,7 @@ import { BroadcastStore } from './broadcasts/store';
 import { createScheduleBroadcastTool } from './broadcasts/broadcast-tool';
 import { createSearchProvider, createToolRunner } from './tools';
 import { PollsService } from './polls/service';
+import { createCreatePollTool } from './polls/poll-tool';
 import { FileSessionStore } from './stores/file';
 import { MemorySessionStore } from './stores/memory';
 import { VERSION } from './version';
@@ -69,10 +70,12 @@ async function main(): Promise<void> {
       },
     ]);
   };
+  const polls = new PollsService(log);
   const tools = createToolRunner(config.tools, proxyDispatcher, [
     createReminderTool({ service: reminders }),
     ...(notes ? [createAddNoteTool({ service: notes })] : []),
     ...(broadcasts ? [createScheduleBroadcastTool({ service: broadcasts })] : []),
+    createCreatePollTool({ service: polls }),
   ]);
   const store =
     config.session.store === 'file'
@@ -80,7 +83,6 @@ async function main(): Promise<void> {
       : new MemorySessionStore();
   const sessions = new SessionManager(store, config.session.maxHistoryMessages);
   const memory = config.memory.enabled ? new UserMemoryStore(join('data', 'memory')) : undefined;
-  const polls = new PollsService(log);
   const bot = new BotCore({
     registry,
     sessions,
