@@ -25,6 +25,11 @@ export interface IncomingMessage {
    * 由 core 在组装多模态请求时按需调用，实现细节（鉴权/下载/编码）在适配器内。
    */
   getAttachmentDataUrls(): Promise<string[]>;
+  /**
+   * 回复场景获取被回复消息的文本内容（无引用或无文本返回空串）。
+   * 懒加载：由 core 在组装请求时按需调用，适配器内部完成反查/解析。
+   */
+  getReplyContext?: () => Promise<string>;
 }
 
 export interface StreamReplyHandle {

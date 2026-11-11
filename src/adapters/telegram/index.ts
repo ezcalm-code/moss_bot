@@ -78,6 +78,12 @@ export class TelegramAdapter implements PlatformAdapter {
           const buf = Buffer.from(await res.arrayBuffer());
           return [`data:image/jpeg;base64,${buf.toString('base64')}`];
         },
+        // 回复文本消息时带上被回复内容（TG payload 内联 reply_to_message，无需反查）
+        getReplyContext: async () => {
+          const parent = raw.reply_to_message;
+          const text = (parent?.text ?? parent?.caption ?? '').trim();
+          return text;
+        },
       };
       await this.dispatch?.(msg);
     });

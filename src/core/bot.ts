@@ -166,17 +166,23 @@ export class BotCore {
       return;
     }
 
+    // 回复场景带上被回复内容：让「回复某条消息 + @bot」真正等于针对那条消息说话
+    const replyContext = msg.getReplyContext ? (await msg.getReplyContext()).trim() : '';
+    const quoted = replyContext ? `[引用的消息]\n${replyContext.slice(0, 2000)}\n\n` : '';
+
     // 群聊共享一份历史，拼上说话人名字区分角色
     const prefixedText = msg.isGroup ? `${msg.senderName}: ${text}` : text;
     const requestContent: MessageContent = dataUrls.length
       ? [
-          { type: 'text', text: prefixedText || '（用户发送了一张图片）' },
+          { type: 'text', text: quoted + (prefixedText || '（用户发送了一张图片）') },
           ...dataUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
         ]
-      : prefixedText;
+      : quoted + prefixedText;
     // 图片 base64 不进历史（体积原因）：历史里只留占位，仅当前请求带图
     const historyContent =
-      dataUrls.length > 0 ? (text ? `[图片] ${text}` : '[图片]') : prefixedText;
+      dataUrls.length > 0
+        ? quoted + (text ? `[图片] ${text}` : '[图片]')
+        : quoted + prefixedText;
     const userMsg = { role: 'user' as const, content: historyContent };
     const messages = [
       { role: 'system' as const, content: await this.systemWithMemory(msg) },

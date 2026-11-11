@@ -231,6 +231,26 @@ export class FeishuAdapter implements PlatformAdapter {
         }
         return [];
       },
+      // 回复文本消息时反查 parent 内容作为引用上下文（懒加载：dispatch 后才调，不拖慢事件确认）
+      getReplyContext: async () => {
+        if (!parentId || messageId === parentId) return '';
+        try {
+          const res = await this.client.im.v1.message.get({ path: { message_id: parentId } });
+          const item = res.data?.items?.[0];
+          if (!item) return '';
+          if (item.msg_type === 'text') {
+            const parsed = JSON.parse(item.body?.content ?? '{}') as { text?: string };
+            return parsed.text?.trim() ?? '';
+          }
+          if (item.msg_type === 'post') {
+            return extractPostContent(item.body?.content ?? '').text.trim();
+          }
+          return '';
+        } catch (err) {
+          this.opts.log.warn({ err, parentId }, 'feishu 反查引用消息失败');
+          return '';
+        }
+      },
     };
     // 异步派发：handler 立即返回以确认事件；消息处理（LLM 回复）在后台完成
     void this.dispatch?.(msg).catch((err: unknown) => {

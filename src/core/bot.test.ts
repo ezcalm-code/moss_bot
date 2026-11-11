@@ -287,6 +287,18 @@ describe('BotCore', () => {
     expect(state.replies.join('\n')).toContain('在的在的');
   });
 
+  it('回复消息时带上被回复内容作为引用上下文', async () => {
+    const { bot, calls } = makeDeps();
+    const { msg } = fakeMsg('针对这个你怎么看', {
+      getReplyContext: async () => '被引用的原文内容',
+    });
+    await bot.handle(msg);
+    const sent = String(calls[0]?.messages.at(-1)?.content);
+    expect(sent).toContain('[引用的消息]');
+    expect(sent).toContain('被引用的原文内容');
+    expect(sent).toContain('针对这个你怎么看');
+  });
+
   it('群聊非 targeted 消息被忽略', async () => {
     const { bot } = makeDeps();
     const { msg, state } = fakeMsg('hello', { isGroup: true, isTargeted: false });
