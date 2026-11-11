@@ -10,6 +10,8 @@ import type { LLMProvider, StreamEvent } from '../llm/types';
 import { ToolRunner } from '../tools';
 import { createWebSearchTool } from '../tools/web-search';
 import type { SearchProvider } from '../tools/web-search/tavily';
+import { ReminderService } from '../reminders/service';
+import { ReminderStore } from '../reminders/store';
 import { MemorySessionStore } from '../stores/memory';
 import { BotCore } from './bot';
 import { builtinCommands, CommandRegistry, parseCommand } from './commands';
@@ -50,7 +52,11 @@ interface CapturedMessage {
   tool_call_id?: string;
 }
 
-function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner, opts?: { holdFirst?: boolean }) {
+function makeDeps(
+  memory?: UserMemoryStore,
+  tools?: ToolRunner,
+  opts?: { holdFirst?: boolean; reminders?: ReminderService },
+) {
   const calls: { model: string; hasTools: boolean; messages: CapturedMessage[] }[] = [];
   const holdFirst = opts?.holdFirst ?? false;
   let releaseFirst: (() => void) | undefined;
@@ -128,6 +134,7 @@ function makeDeps(memory?: UserMemoryStore, tools?: ToolRunner, opts?: { holdFir
     log: silentLog,
     memory,
     tools,
+    reminders: opts?.reminders,
   });
   return {
     bot,
@@ -189,6 +196,34 @@ function fakeMsg(text: string, extra?: Partial<IncomingMessage> & { dataUrls?: s
   };
   return { msg, state };
 }
+
+describe('/reminders 输出', () => {
+  it('清单带截至时刻与每条创建时间（被引用时模型可识别快照时效）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moss-rem-list-'));
+    try {
+      const log = pino({ level: 'silent' });
+      const created = new Date(2026, 11, 10, 20, 0).getTime();
+      const reminders = new ReminderService(new ReminderStore(dir, log), log);
+      reminders.add({
+        platform: 'telegram',
+        chatId: 'c1',
+        senderName: 'Alice',
+        text: '龙哥生日',
+        dueAt: created + 86_400_000,
+      });
+      const { bot } = makeDeps(undefined, undefined, { reminders });
+      const { msg, state } = fakeMsg('/reminders', { chatId: 'c1' });
+      await bot.handle(msg);
+      const out = state.replies.join('\n');
+      expect(out).toContain('截至'); // 快照时刻锚：被引用时模型可识别时效
+      expect(out).toContain('创建于');
+      expect(out).toContain('龙哥生日');
+      expect(out).toContain('/unremind');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('parseCommand', () => {
   it.each([

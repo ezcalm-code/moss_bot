@@ -434,10 +434,13 @@ export function builtinCommands(): CommandSpec[] {
           await ctx.reply('这个会话还没有待触发的提醒。');
           return;
         }
+        // 头部带截至时刻 + 每条带创建时间：这段文本被引用回复时，模型能识别快照时效
+        const asOf = `定时提醒清单（截至 ${formatDisplay(Date.now(), deps.timezone)}，实时状态）：`;
         const lines = list.map(
-          (r) => `${r.id} · ${formatDisplay(r.dueAt, deps.timezone)} · ${r.text}`,
+          (r) =>
+            `${r.id} · 提醒于 ${formatDisplay(r.dueAt, deps.timezone)} · 创建于 ${formatDisplay(r.createdAt, deps.timezone)} · ${r.text}`,
         );
-        await ctx.reply(`待触发的提醒：\n${lines.join('\n')}\n用 /unremind <id> 取消。`);
+        await ctx.reply(`${asOf}\n${lines.join('\n')}\n用 /unremind <id> 取消。`);
       },
     },
     {
