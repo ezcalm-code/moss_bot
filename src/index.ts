@@ -21,6 +21,7 @@ import { createScheduleBroadcastTool } from './broadcasts/broadcast-tool';
 import { createImageProvider } from './images';
 import { createGenerateImageTool } from './images/image-tool';
 import { ImageService } from './images/service';
+import { createListScheduleTool } from './schedule/list-tool';
 import { createSearchProvider, createToolRunner } from './tools';
 import { PollsService } from './polls/service';
 import { createCreatePollTool } from './polls/poll-tool';
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
     ...(notes ? [createAddNoteTool({ service: notes })] : []),
     ...(broadcasts ? [createScheduleBroadcastTool({ service: broadcasts })] : []),
     createCreatePollTool({ service: polls }),
+    createListScheduleTool({ reminders, broadcasts, timezone: config.timezone }),
     ...(images ? [createGenerateImageTool({ service: images })] : []),
   ]);
   const store =
