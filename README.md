@@ -99,7 +99,7 @@ curl -o .env $base/.env.example && vi .env   # 填 API key
 docker compose up -d && docker compose logs -f
 ```
 
-从源码构建镜像：`docker build -t moss-bot .`（或 `docker compose up -d --build`）。
+从源码构建镜像：`docker build -t moss_bot .`（或 `docker compose up -d --build`）。
 
 ## 架构
 
