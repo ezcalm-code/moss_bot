@@ -87,10 +87,19 @@ providers:
 
 ## Docker 部署
 
+一键跑起来（镜像来自 ghcr.io，多架构 amd64/arm64）：
+
 ```bash
-cp config.example.yaml config.yaml && cp .env.example .env   # 填好配置
-docker compose up -d
+mkdir moss-bots && cd moss-bots && mkdir data prompts
+base=https://raw.githubusercontent.com/ezcalm-code/moss_bot/main
+curl -o config.yaml $base/config.example.yaml   # 编辑模型与平台
+curl -o prompts/default.md $base/prompts/default.md
+curl -o docker-compose.yml $base/docker-compose.yml
+curl -o .env $base/.env.example && vi .env   # 填 API key
+docker compose up -d && docker compose logs -f
 ```
+
+从源码构建镜像：`docker build -t moss-bot .`（或 `docker compose up -d --build`）。
 
 ## 架构
 

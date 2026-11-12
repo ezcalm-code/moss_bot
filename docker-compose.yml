@@ -1,7 +1,6 @@
 services:
   moss-bots:
-    build: .
-    image: moss-bots:latest
+    image: ghcr.io/ezcalm-code/moss-bot:latest
     restart: unless-stopped
     env_file:
       - path: .env
