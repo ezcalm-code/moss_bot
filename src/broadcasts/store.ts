@@ -10,6 +10,8 @@ export interface Broadcast {
   /** 每日触发时刻 HH:MM（零填充，按配置时区） */
   time: string;
   query: string;
+  /** 创建时刻 epoch ms（旧记录可能缺失） */
+  createdAt?: number;
   /** 触发当日去重：tz 内日期串 YYYY-MM-DD */
   lastFiredDay?: string;
 }

@@ -115,6 +115,10 @@ export class BroadcastService {
       }
       try {
         await dispatch(b.platform, b.chatId, `📰 每日播报（${b.time}）：\n\n${text}`);
+        this.log.info(
+          { id: b.id, platform: b.platform, chatId: b.chatId, chars: text.length },
+          '播报推送完成',
+        );
       } catch (err) {
         this.log.warn({ err, id: b.id }, '播报推送失败');
       }
